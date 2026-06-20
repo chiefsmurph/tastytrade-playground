@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { getBidAskForSymbol } from "./core/market-data.js";
-import { fetchOptionChainsWithVolume } from "./core/option-service.js";
+import { getBidAskForSymbol } from "./core/market-data";
+import { fetchOptionChainsWithVolume } from "./core/option-service";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 

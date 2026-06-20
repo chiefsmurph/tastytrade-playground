@@ -1,5 +1,5 @@
-import { CurrentPosition } from "../core/types.js";
-import { getBidAskForSymbol } from "../core/market-data.js";
+import { CurrentPosition } from "../core/types";
+import { getBidAskForSymbol } from "../core/market-data";
 
 export type ProgrammaticAction = 'AVERAGE_DOWN' | 'CLOSE_POSITION' | 'HOLD_POSITION';
 

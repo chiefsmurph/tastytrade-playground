@@ -1,4 +1,4 @@
-import tastytradeApi from "./tastytrade-client.js";
+import tastytradeApi from "./tastytrade-client";
 
 export async function getBidAskForSymbol(
   symbol: string,

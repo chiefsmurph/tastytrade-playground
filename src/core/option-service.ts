@@ -1,6 +1,5 @@
-import axios from "axios";
-import tastytradeApi from "./tastytrade-client.js";
-import { OptionChain, OptionChains, OptionChainWithVolumes } from "./types.js";
+import tastytradeApi from "./tastytrade-client";
+import { OptionChain, OptionChains, OptionChainWithVolumes } from "./types";
 
 export async function fetchOptionChains(symbol: string): Promise<OptionChains> {
   const data =

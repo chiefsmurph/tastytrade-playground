@@ -1,3 +1,3 @@
-import { startIpcServer } from "./ipc-server.js";
+import { startIpcServer } from "./ipc-server";
 
 startIpcServer();

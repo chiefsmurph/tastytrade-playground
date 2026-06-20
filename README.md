@@ -19,11 +19,13 @@ cp .env.example .env
 # open .env and add your API key and account id
 ```
 
-3. Build the project:
+3. Type-check the project:
 
 ```bash
 npm run build
 ```
+
+This project runs directly from TypeScript via `tsx`. The build step validates types only and does not emit `dist` output.
 
 Run With IPC
 
@@ -52,7 +54,7 @@ Supported IPC commands
 
 How it works
 
-- `npm run start:tsx` starts the IPC server.
+- `npm run start:tsx` starts the IPC server from the TypeScript source via `tsx`.
 - `node run ...` starts a separate Node process that sends a request over `node:net`.
 - The server executes the command and returns the JSON response.
 - The IPC server logs incoming requests, route hits, unknown commands, and outgoing responses.
@@ -62,3 +64,4 @@ Notes
 - If the client cannot connect, start or restart the IPC server with `npm run start:tsx`.
 - The Tastytrade calls depend on the values in `.env`.
 - The socket path can be overridden with `TASTYTRADE_BOT_SOCKET`.
+- Source imports use extensionless TypeScript paths because runtime execution goes through `tsx` with bundler-style resolution.
