@@ -1,5 +1,5 @@
-import { CurrentPosition } from "./types";
-import { getBidAskForSymbol } from "./market-data";
+import { CurrentPosition } from "../core/types.js";
+import { getBidAskForSymbol } from "../core/market-data.js";
 
 export type ProgrammaticAction = 'AVERAGE_DOWN' | 'CLOSE_POSITION' | 'HOLD_POSITION';
 
@@ -10,7 +10,6 @@ export interface PositionMetrics {
   currentTime: Date;
   lastActionTime: Date | null;  // Tracks exactly when the last transaction occurred
 }
-
 
 
 export async function evaluateCurrentPosition(currentPosition: CurrentPosition): Promise<ProgrammaticAction> {

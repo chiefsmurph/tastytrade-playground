@@ -1,0 +1,182 @@
+import fs from "node:fs";
+import net from "node:net";
+import path from "node:path";
+import { getBidAskForSymbol } from "./core/market-data.js";
+import { fetchOptionChainsWithVolume } from "./core/option-service.js";
+
+type CommandHandler = (args: string[]) => Promise<unknown>;
+
+type IpcRequest = {
+  id?: string;
+  command?: string;
+  args?: string[];
+};
+
+type IpcResponse = {
+  id: string | null;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+};
+
+const socketPath =
+  process.env.TASTYTRADE_BOT_SOCKET ||
+  path.join(process.cwd(), ".tastytrade-bot.sock");
+
+const commandHandlers: Record<string, CommandHandler> = {
+  "core:getBidAskForSymbol": async ([symbol, timeoutMs]) => {
+    assertArg(symbol, "symbol");
+    const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
+    return getBidAskForSymbol(symbol, parsedTimeout);
+  },
+  "core:fetchOptionChainsWithVolume": async ([symbol]) => {
+    assertArg(symbol, "symbol");
+    return fetchOptionChainsWithVolume(symbol);
+  },
+};
+
+export function startIpcServer() {
+  cleanupStaleSocket();
+
+  const server = net.createServer((socket) => {
+    let buffer = "";
+
+    socket.on("data", async (chunk) => {
+      buffer += chunk.toString();
+
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const raw = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+
+        if (!raw) {
+          continue;
+        }
+
+        const response = await handleRequest(raw);
+        logResponse(response);
+        socket.write(`${JSON.stringify(response)}\n`);
+      }
+    });
+  });
+
+  server.listen(socketPath, () => {
+    console.log(`IPC server listening on ${socketPath}`);
+    console.log("Available commands:");
+    for (const command of Object.keys(commandHandlers)) {
+      console.log(`- ${command}`);
+    }
+  });
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      server.close(() => {
+        removeSocketFile();
+        process.exit(0);
+      });
+    });
+  }
+
+  process.on("exit", removeSocketFile);
+  return server;
+}
+
+async function handleRequest(raw: string): Promise<IpcResponse> {
+  let request: IpcRequest;
+
+  try {
+    request = JSON.parse(raw) as IpcRequest;
+  } catch {
+    const response = {
+      id: null,
+      ok: false,
+      error: "Invalid JSON request",
+    };
+    logRequest({ id: null, command: undefined, args: [] }, "invalid-json", raw);
+    return response;
+  }
+
+  const id = request.id ?? null;
+  const command = request.command;
+  const args = Array.isArray(request.args) ? request.args : [];
+
+  logRequest({ id, command, args }, "received");
+
+  if (!command) {
+    logRequest({ id, command, args }, "missing-command");
+    return { id, ok: false, error: "Missing command" };
+  }
+
+  const handler = commandHandlers[command];
+  if (!handler) {
+    logRequest({ id, command, args }, "unknown-command");
+    return { id, ok: false, error: `Unknown command: ${command}` };
+  }
+
+  logRequest({ id, command, args }, "route-hit");
+
+  try {
+    const result = await handler(args);
+    return { id, ok: true, result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { id, ok: false, error: message };
+  }
+}
+
+function logRequest(
+  request: { id: string | null; command?: string; args: string[] },
+  status: "received" | "route-hit" | "missing-command" | "unknown-command" | "invalid-json",
+  raw?: string,
+) {
+  console.log(
+    JSON.stringify({
+      scope: "ipc-request",
+      status,
+      id: request.id,
+      command: request.command ?? null,
+      args: request.args,
+      raw: raw ?? undefined,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
+
+function logResponse(response: IpcResponse) {
+  console.log(
+    JSON.stringify({
+      scope: "ipc-response",
+      id: response.id,
+      ok: response.ok,
+      error: response.error ?? null,
+      result: response.result ?? null,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
+
+function assertArg(value: string | undefined, name: string): asserts value is string {
+  if (!value) {
+    throw new Error(`Missing required argument: ${name}`);
+  }
+}
+
+function cleanupStaleSocket() {
+  try {
+    if (fs.existsSync(socketPath)) {
+      fs.unlinkSync(socketPath);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not clean up IPC socket ${socketPath}: ${message}`);
+  }
+}
+
+function removeSocketFile() {
+  try {
+    if (fs.existsSync(socketPath)) {
+      fs.unlinkSync(socketPath);
+    }
+  } catch {}
+}

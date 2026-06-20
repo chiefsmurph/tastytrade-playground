@@ -19,13 +19,46 @@ cp .env.example .env
 # open .env and add your API key and account id
 ```
 
-3. Run:
+3. Build the project:
 
 ```bash
-npm start
+npm run build
 ```
+
+Run With IPC
+
+Start the IPC server in one terminal:
+
+```bash
+npm run start:tsx
+```
+
+This starts a long-running Node process that listens on a local socket at `.tastytrade-bot.sock`.
+
+In a second terminal, call commands through IPC:
+
+```bash
+node run core:getBidAskForSymbol AAPL
+```
+
+```bash
+node run core:fetchOptionChainsWithVolume RUM
+```
+
+Supported IPC commands
+
+- `core:getBidAskForSymbol <symbol> [timeoutMs]`
+- `core:fetchOptionChainsWithVolume <symbol>`
+
+How it works
+
+- `npm run start:tsx` starts the IPC server.
+- `node run ...` starts a separate Node process that sends a request over `node:net`.
+- The server executes the command and returns the JSON response.
+- The IPC server logs incoming requests, route hits, unknown commands, and outgoing responses.
 
 Notes
 
-- The wrapper tries common endpoints; adjust `TASTYTRADE_BASE_URL` if you have a different host or paper endpoint.
-- If Tastytrade requires OAuth instead of a bearer API key, let me know and I will change the auth flow.
+- If the client cannot connect, start or restart the IPC server with `npm run start:tsx`.
+- The Tastytrade calls depend on the values in `.env`.
+- The socket path can be overridden with `TASTYTRADE_BOT_SOCKET`.

@@ -129,3 +129,20 @@ export interface OptionChain {
 }
 
 export type OptionChains = OptionChain[];
+
+// Volume-augmented variants
+export interface StrikeWithVolumes extends Strike {
+  callVolume?: number;
+  putVolume?: number;
+  volume?: number; // generic fallback
+}
+
+export interface ExpirationWithVolumes extends Omit<Expiration, 'strikes'> {
+  strikes: StrikeWithVolumes[];
+}
+
+export interface OptionChainWithVolumes extends Omit<OptionChain, 'expirations'> {
+  expirations: ExpirationWithVolumes[];
+}
+
+export type OptionChainsWithVolumes = OptionChainWithVolumes[];
