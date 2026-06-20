@@ -25,7 +25,7 @@ cp .env.example .env
 npm run build
 ```
 
-This project runs directly from TypeScript via `tsx`. The build step validates types only and does not emit `dist` output.
+This project runs directly from TypeScript via `tsx`. The build step validates types only and does not emit JavaScript output.
 
 Run With IPC
 

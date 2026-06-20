@@ -1,3 +1,5 @@
+import { OptionChain } from "../core/types";
+
 const MIN_DTE = 28; // 4 weeks
 const MAX_DTE = 42; // 6 weeks
 const STRIKES_AROUND_ATM = 2;
@@ -6,13 +8,13 @@ function num(value: string | number): number {
   return typeof value === "number" ? value : Number(value);
 }
 
-export function chooseOptionCandidates(optionChain: any, underlyingPrice: number) {
+export function chooseOptionCandidates(optionChain: OptionChain, underlyingPrice: number) {
   const expirations = optionChain.expirations
-    .filter((exp: any) => {
+    .filter((exp) => {
       const dte = num(exp["days-to-expiration"]);
       return dte >= MIN_DTE && dte <= MAX_DTE;
     })
-    .sort((a: any, b: any) => {
+    .sort((a, b) => {
       // Prefer regular monthly expirations, then closer to 35 DTE
       const aRegular = a["expiration-type"] === "Regular" ? 0 : 1;
       const bRegular = b["expiration-type"] === "Regular" ? 0 : 1;
@@ -29,7 +31,7 @@ export function chooseOptionCandidates(optionChain: any, underlyingPrice: number
 
   for (const exp of expirations) {
     const strikes = exp.strikes
-      .map((strike: any) => ({
+      .map((strike) => ({
         expirationDate: exp["expiration-date"],
         expirationType: exp["expiration-type"],
         dte: num(exp["days-to-expiration"]),
@@ -37,10 +39,10 @@ export function chooseOptionCandidates(optionChain: any, underlyingPrice: number
         symbol: strike.call,
         streamerSymbol: strike["call-streamer-symbol"],
       }))
-      .sort((a: any, b: any) => a.strike - b.strike);
+      .sort((a, b) => a.strike - b.strike);
 
     // For a call, ITM means strike < underlying price.
-    const itm = strikes.filter((s: any) => s.strike < underlyingPrice);
+    const itm = strikes.filter((s) => s.strike < underlyingPrice);
 
     if (!itm.length) continue;
 

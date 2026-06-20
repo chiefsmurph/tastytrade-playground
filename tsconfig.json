@@ -13,5 +13,5 @@
     "resolvePackageJsonExports": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "example-package"]
+  "exclude": ["node_modules", "example-package"]
 }

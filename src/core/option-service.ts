@@ -1,5 +1,5 @@
 import tastytradeApi from "./tastytrade-client";
-import { OptionChain, OptionChains, OptionChainWithVolumes } from "./types";
+import { OptionChains, OptionChainWithVolumes } from "./types";
 
 export async function fetchOptionChains(symbol: string): Promise<OptionChains> {
   const data =
