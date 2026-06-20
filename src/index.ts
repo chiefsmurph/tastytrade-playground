@@ -22,6 +22,7 @@ console.log({ pr: process.env.BASE_URL });
 
     // Fetch option chains for RUM
     const optionChains = await fetchOptionChains("RUM");
+    console.log("Option chains for RUM:", JSON.stringify(optionChains, null, 2));
     // Also collect a short sample of volumes for option contracts
     const optionVolumes = await fetchOptionVolumes("RUM", 5000);
     const merged = mergeVolumesIntoChain(optionChains, optionVolumes);

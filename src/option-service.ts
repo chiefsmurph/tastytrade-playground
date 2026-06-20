@@ -1,7 +1,8 @@
 import axios from 'axios';
 import tastytradeApi from './tastytradeClient';
+import { OptionChains } from './types';
 
-export async function fetchOptionChains(symbol: string) {
+export async function fetchOptionChains(symbol: string): Promise<OptionChains> {
   try {
     // Prefer using the client library's InstrumentsService
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -45,8 +46,8 @@ export async function fetchOptionChains(symbol: string) {
 export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
   try {
     // @ts-ignore
-    const nested = await tastytradeApi.instrumentsService.getNestedOptionChain(symbol);
-
+    const nested = await fetchOptionChains(symbol);
+    console.log(JSON.stringify({nested}, null, 2));
     const streamerSymbols: string[] = [];
     function collect(obj: any) {
       if (!obj || typeof obj !== 'object') return;
@@ -80,33 +81,40 @@ export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
       return null;
     }
 
-    function extractVolumeFromEvent(ev: any): { symbol?: string; volume?: number } | null {
+    function extractVolumeFromEvent(ev: any): { symbol?: string; volume?: number; source?: string } | null {
       if (!ev) return null;
+      // small debug dump for first events
+      // console.log('Extracting volume from event:', JSON.stringify(ev, null, 2));
 
       const symbol = ev.eventSymbol || ev.symbol || ev.s || ev.t || ev.ticker || ev[1];
 
+      // check common trade/size fields
       let vol = toNumberMaybe(ev.size ?? ev.volume ?? ev.v ?? ev.tradeVolume ?? null);
-      if (vol != null) return { symbol, volume: vol };
+      if (vol != null) return { symbol, volume: vol, source: 'trade.size|volume|v|tradeVolume' };
 
+      // summary/day volume
       vol = toNumberMaybe(ev.dayVolume ?? ev.prevDayVolume ?? null);
-      if (vol != null) return { symbol, volume: vol };
+      if (vol != null) return { symbol, volume: vol, source: 'dayVolume|prevDayVolume' };
 
+      // quote sizes
       vol = toNumberMaybe(ev.bidSize ?? ev.askSize ?? null);
-      if (vol != null) return { symbol, volume: vol };
+      if (vol != null) return { symbol, volume: vol, source: 'bidSize|askSize' };
 
+      // open interest
       vol = toNumberMaybe(ev.openInterest ?? null);
-      if (vol != null) return { symbol, volume: vol };
+      if (vol != null) return { symbol, volume: vol, source: 'openInterest' };
 
+      // array-style events - try to find a plausible integer volume in the payload
       if (Array.isArray(ev)) {
         const arrSymbol = ev[1];
         for (const item of ev) {
           if (typeof item === 'number' && Number.isInteger(item) && item > 0 && item < 1e8) {
-            return { symbol: arrSymbol, volume: item };
+            return { symbol: arrSymbol, volume: item, source: 'array:number' };
           }
           if (typeof item === 'string') {
             const n = Number(item);
             if (Number.isFinite(n) && Number.isInteger(n) && n > 0 && n < 1e8) {
-              return { symbol: arrSymbol, volume: n };
+              return { symbol: arrSymbol, volume: n, source: 'array:string' };
             }
           }
         }
@@ -124,6 +132,8 @@ export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
         try {
           const parsed = extractVolumeFromEvent(ev);
           if (parsed && parsed.symbol && typeof parsed.volume === 'number') {
+            // log which event key/source produced the volume
+            console.log('parsed volume from', parsed.source, 'symbol:', parsed.symbol, 'volume:', parsed.volume);
             volumes[parsed.symbol] = (volumes[parsed.symbol] || 0) + parsed.volume;
           }
         } catch (e) {
@@ -197,5 +207,3 @@ export function mergeVolumesIntoChain(chain: any, volumes: Record<string, number
   merge(cloned);
   return cloned;
 }
-
-export default { fetchOptionChains, fetchOptionVolumes, mergeVolumesIntoChain };

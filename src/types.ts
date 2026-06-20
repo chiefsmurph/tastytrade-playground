@@ -84,3 +84,48 @@ export interface CurrentPosition {
 }
 
 export type InstrumentType = 'Equity' | 'Option' | 'Future' | string;
+
+// Option chain types
+export interface TickSize {
+  threshold?: string;
+  value: string;
+}
+
+export interface Deliverable {
+  id: number;
+  amount: string;
+  'deliverable-type': string;
+  description: string;
+  'instrument-type': string;
+  percent: string;
+  'root-symbol': string;
+  symbol: string;
+}
+
+export interface Strike {
+  'strike-price': string;
+  call?: string;
+  'call-streamer-symbol'?: string;
+  put?: string;
+  'put-streamer-symbol'?: string;
+}
+
+export interface Expiration {
+  'expiration-type': string;
+  'expiration-date': string;
+  'days-to-expiration': number;
+  'settlement-type': string;
+  strikes: Strike[];
+}
+
+export interface OptionChain {
+  'underlying-symbol': string;
+  'root-symbol': string;
+  'option-chain-type': string;
+  'shares-per-contract': number;
+  'tick-sizes'?: TickSize[];
+  'deliverables'?: Deliverable[];
+  expirations: Expiration[];
+}
+
+export type OptionChains = OptionChain[];
