@@ -1,0 +1,42 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+out/
+
+# Runtime files
+.env
+.ENV
+.env.*
+.env.local
+.env.test
+
+# Logs
+logs/
+*.log
+.npm/
+
+# TypeScript
+.tsbuildinfo
+
+# Coverage
+coverage/
+.nyc_output/
+
+# VS Code
+.vscode/
+.history/
+
+# macOS
+.DS_Store
+
+# Other
+.cache/
+/.parcel-cache
+.pnp.cjs
+.pnp.js
+.idea/
