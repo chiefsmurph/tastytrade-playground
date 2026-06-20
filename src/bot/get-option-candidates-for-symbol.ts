@@ -1,14 +1,15 @@
 import { getUnderlyingPrice } from "../core/market-data";
-import { fetchOptionChainsWithVolume } from "../core/option-service";
+import { fetchOptionChainWithVolume } from "../core/option-service";
 import { chooseOptionCandidates } from "./option-contracts";
 
 export async function getOptionCandidatesForSymbol(symbol: string) {
-  const optionChains = await fetchOptionChainsWithVolume(symbol);
+  const optionChain = await fetchOptionChainWithVolume(symbol);
   const underlyingPrice = await getUnderlyingPrice(symbol);
-  const optionCandidates = optionChains.map((chain) =>
-    chooseOptionCandidates(chain, underlyingPrice?.underlyingPrice || 0),
-  ).flat();
-  console.log(JSON.stringify({ optionChains, optionCandidates }, null, 2));
+  const optionCandidates = chooseOptionCandidates(
+    optionChain,
+    underlyingPrice?.underlyingPrice || 0,
+  );
+  console.log(JSON.stringify({ optionChain, optionCandidates }, null, 2));
   return optionCandidates;
 }
 

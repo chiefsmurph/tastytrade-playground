@@ -1,6 +1,6 @@
 import tastytradeApi from "../core/tastytrade-client";
 import { getBidAskForSymbol, getUnderlyingPrice } from "../core/market-data";
-import { fetchOptionChainsWithVolume } from "../core/option-service";
+import { fetchOptionChain } from "../core/option-service";
 import { CurrentPosition } from "../core/types";
 import { chooseOptionCandidates } from "./option-contracts";
 
@@ -20,12 +20,13 @@ export default async function johnsTestRun() {
       );
     console.log({ currentPositions });
 
-    const optionChains = await fetchOptionChainsWithVolume("RUM");
+    const optionChain = await fetchOptionChain("RUM");
     const underlyingPrice = await getUnderlyingPrice("RUM");
-    const optionCandidates = optionChains.map((chain) =>
-      chooseOptionCandidates(chain, underlyingPrice?.underlyingPrice || 0),
+    const optionCandidates = chooseOptionCandidates(
+      optionChain,
+      underlyingPrice?.underlyingPrice || 0,
     );
-    console.log(JSON.stringify({ optionChains, optionCandidates }, null, 2));
+    console.log(JSON.stringify({ optionChain, optionCandidates }, null, 2));
 
     const quote = await getBidAskForSymbol("RUM");
     console.log("Bid/Ask for RUM:", quote);

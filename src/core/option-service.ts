@@ -1,16 +1,15 @@
 import tastytradeApi from "./tastytrade-client";
-import { OptionChains, OptionChainWithVolumes } from "./types";
+import { OptionChain, OptionChains, OptionChainWithVolumes } from "./types";
 
-export async function fetchOptionChains(symbol: string): Promise<OptionChains> {
-  const data =
+export async function fetchOptionChain(symbol: string): Promise<OptionChain> {
+  const data: OptionChains =
     await tastytradeApi.instrumentsService.getNestedOptionChain(symbol);
-  return data;
+  return data[0];
 }
 
 export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
   try {
-    // @ts-ignore
-    const nested = await fetchOptionChains(symbol);
+    const nested = await fetchOptionChain(symbol);
     console.log(JSON.stringify({ nested }, null, 2));
     const streamerSymbols: string[] = [];
     function collect(obj: any) {
@@ -122,8 +121,7 @@ export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
               volumes[parsed.symbol] =
                 (volumes[parsed.symbol] || 0) + parsed.volume;
             }
-          } catch (e) {
-          }
+          } catch (e) {}
         }
       },
     );
@@ -162,7 +160,7 @@ export function candidateSymbolsFor(raw: string | undefined) {
 }
 
 export function mergeVolumesIntoChain(
-  chain: OptionChains,
+  chain: OptionChain,
   volumes: Record<string, number>,
 ) {
   if (!chain || typeof chain !== "object") return chain;
@@ -208,17 +206,17 @@ export function mergeVolumesIntoChain(
 
   const cloned = JSON.parse(JSON.stringify(chain));
   merge(cloned);
-  return cloned as OptionChainWithVolumes[];
+  return cloned as OptionChainWithVolumes;
 }
 
-export async function fetchOptionChainsWithVolume(symbol: string) {
-  const optionChains = await fetchOptionChains(symbol);
+export async function fetchOptionChainWithVolume(symbol: string) {
+  const optionChain = await fetchOptionChain(symbol);
   console.log(
-    `Option chains for ${symbol}`,
-    JSON.stringify(optionChains, null, 2),
+    `Option chain for ${symbol}`,
+    JSON.stringify(optionChain, null, 2),
   );
   const optionVolumes = await fetchOptionVolumes(symbol, 5000);
-  const merged = mergeVolumesIntoChain(optionChains, optionVolumes);
+  const merged = mergeVolumesIntoChain(optionChain, optionVolumes);
   console.log(
     "Merged option chain with volumes:",
     JSON.stringify(merged, null, 2),

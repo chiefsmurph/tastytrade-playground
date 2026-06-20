@@ -1,5 +1,5 @@
 import { getUnderlyingPrice } from "../core/market-data";
-import { fetchOptionChainsWithVolume } from "../core/option-service";
+import { fetchOptionChainWithVolume } from "../core/option-service";
 import { OptionChain, OptionChainWithVolumes } from "../core/types";
 
 const MIN_DTE = 28; // 4 weeks
@@ -15,18 +15,44 @@ export async function getOptionCandidates(
   symbol: string,
   side: "call" | "put" = "call",
 ): Promise<ReturnType<typeof chooseOptionCandidates>> {
-  const optionChains = await fetchOptionChainsWithVolume(symbol);
+  const optionChain = await fetchOptionChainWithVolume(symbol);
   const underlyingPrice = await getUnderlyingPrice(symbol);
-  const optionCandidates = optionChains
-    .map((chain) =>
-      chooseOptionCandidates(chain, underlyingPrice?.underlyingPrice || 0),
+  const optionCandidates = chooseOptionCandidates(
+    optionChain,
+    underlyingPrice?.underlyingPrice || 0,
+  ).map((candidate) => ({
+    ...candidate,
+    meetsVolumeRequirement: (candidate[`${side}Volume`] || 0) >= MIN_VOLUME,
+  }));
+  if (optionCandidates.length === 0) {
+    console.log("No option candidates found for", symbol);
+    const fallbackOptionChainsByVolume = sortOptionChainByVolume(
+      optionChain,
+      side,
+    );
+    console.log(
+      "Option chains sorted by volume:",
+      JSON.stringify(fallbackOptionChainsByVolume, null, 2),
+    );
+  }
+  return optionCandidates;
+}
+
+export function sortOptionChainByVolume(
+  optionChain: OptionChainWithVolumes,
+  side: "call" | "put" = "call",
+) {
+  const sorted = optionChain.expirations
+    .map(({ strikes, ...expiration }) =>
+      strikes.map((strike) => ({
+        ...expiration,
+        ...strike,
+        meetsVolumeRequirement: (strike[`${side}Volume`] || 0) >= MIN_VOLUME,
+      })),
     )
     .flat()
-    .map(candidate => ({
-      ...candidate,
-      meetsVolumeRequirement: (candidate[`${side}Volume`] || 0) >= MIN_VOLUME,
-    }));
-  return optionCandidates;
+    .sort((a, b) => (b[`${side}Volume`] || 0) - (a[`${side}Volume`] || 0));
+  return sorted;
 }
 
 export function chooseOptionCandidates(
@@ -50,6 +76,14 @@ export function chooseOptionCandidates(
         Math.abs(num(b["days-to-expiration"]) - 35)
       );
     });
+
+  if (!expirations.length) {
+    console.warn(
+      "No expirations found within DTE range for",
+      optionChain["underlying-symbol"],
+    );
+    return [];
+  }
 
   const candidates = [];
 

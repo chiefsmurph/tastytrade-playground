@@ -2,7 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { getBidAskForSymbol, getUnderlyingPrice } from "./core/market-data";
-import { fetchOptionChainsWithVolume } from "./core/option-service";
+import { fetchOptionChainWithVolume } from "./core/option-service";
 import johnsTestRun from "./bot/johns-test-run";
 import {
   getOptionCandidatesForSymbol,
@@ -40,9 +40,9 @@ const commandHandlers: Record<string, CommandHandler> = {
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
     return getUnderlyingPrice(symbol, parsedTimeout);
   },
-  "core:fetchOptionChainsWithVolume": async ([symbol]) => {
+  "core:fetchOptionChainWithVolume": async ([symbol]) => {
     assertArg(symbol, "symbol");
-    return fetchOptionChainsWithVolume(symbol);
+    return fetchOptionChainWithVolume(symbol);
   },
   "bot:getOptionCandidatesForSymbol": async ([symbol]) => {
     assertArg(symbol, "symbol");
