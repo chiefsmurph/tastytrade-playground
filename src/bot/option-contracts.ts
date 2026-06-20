@@ -1,14 +1,38 @@
-import { OptionChain } from "../core/types";
+import { getUnderlyingPrice } from "../core/market-data";
+import { fetchOptionChainsWithVolume } from "../core/option-service";
+import { OptionChain, OptionChainWithVolumes } from "../core/types";
 
 const MIN_DTE = 28; // 4 weeks
 const MAX_DTE = 42; // 6 weeks
 const STRIKES_AROUND_ATM = 2;
+const MIN_VOLUME = 120;
 
 function num(value: string | number): number {
   return typeof value === "number" ? value : Number(value);
 }
 
-export function chooseOptionCandidates(optionChain: OptionChain, underlyingPrice: number) {
+export async function getOptionCandidates(
+  symbol: string,
+  side: "call" | "put" = "call",
+): Promise<ReturnType<typeof chooseOptionCandidates>> {
+  const optionChains = await fetchOptionChainsWithVolume(symbol);
+  const underlyingPrice = await getUnderlyingPrice(symbol);
+  const optionCandidates = optionChains
+    .map((chain) =>
+      chooseOptionCandidates(chain, underlyingPrice?.underlyingPrice || 0),
+    )
+    .flat()
+    .map(candidate => ({
+      ...candidate,
+      meetsVolumeRequirement: (candidate[`${side}Volume`] || 0) >= MIN_VOLUME,
+    }));
+  return optionCandidates;
+}
+
+export function chooseOptionCandidates(
+  optionChain: OptionChainWithVolumes,
+  underlyingPrice: number,
+) {
   const expirations = optionChain.expirations
     .filter((exp) => {
       const dte = num(exp["days-to-expiration"]);
@@ -38,8 +62,9 @@ export function chooseOptionCandidates(optionChain: OptionChain, underlyingPrice
         strike: num(strike["strike-price"]),
         symbol: strike.call,
         streamerSymbol: strike["call-streamer-symbol"],
+        ...strike,
       }))
-      .sort((a, b) => a.strike - b.strike);
+      .sort((a, b) => num(a["strike-price"]) - num(b["strike-price"]));
 
     // For a call, ITM means strike < underlying price.
     const itm = strikes.filter((s) => s.strike < underlyingPrice);
@@ -50,7 +75,11 @@ export function chooseOptionCandidates(optionChain: OptionChain, underlyingPrice
     const closestItmIndex = itm.length - 1;
 
     // Add closest ITM plus 1-2 deeper ITM strikes.
-    for (let i = closestItmIndex; i >= Math.max(0, closestItmIndex - STRIKES_AROUND_ATM); i--) {
+    for (
+      let i = closestItmIndex;
+      i >= Math.max(0, closestItmIndex - STRIKES_AROUND_ATM);
+      i--
+    ) {
       candidates.push(itm[i]);
     }
   }

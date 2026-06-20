@@ -1,8 +1,14 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { getBidAskForSymbol } from "./core/market-data";
+import { getBidAskForSymbol, getUnderlyingPrice } from "./core/market-data";
 import { fetchOptionChainsWithVolume } from "./core/option-service";
+import johnsTestRun from "./bot/johns-test-run";
+import {
+  getOptionCandidatesForSymbol,
+  getTopOptionCandidateForSymbol,
+} from "./bot/get-option-candidates-for-symbol";
+import { getOptionCandidates } from "./bot/option-contracts";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 
@@ -29,10 +35,29 @@ const commandHandlers: Record<string, CommandHandler> = {
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
     return getBidAskForSymbol(symbol, parsedTimeout);
   },
+  "core:getUnderlyingPrice": async ([symbol, timeoutMs]) => {
+    assertArg(symbol, "symbol");
+    const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
+    return getUnderlyingPrice(symbol, parsedTimeout);
+  },
   "core:fetchOptionChainsWithVolume": async ([symbol]) => {
     assertArg(symbol, "symbol");
     return fetchOptionChainsWithVolume(symbol);
   },
+  "bot:getOptionCandidatesForSymbol": async ([symbol]) => {
+    assertArg(symbol, "symbol");
+    return getOptionCandidatesForSymbol(symbol);
+  },
+  "bot:getOptionCandidates": async ([symbol, side]) => {
+    assertArg(symbol, "symbol");
+    const normalizedSide = side === "put" ? "put" : "call";
+    return getOptionCandidates(symbol, normalizedSide);
+  },
+  "bot:getTopOptionCandidateForSymbol": async ([symbol]) => {
+    assertArg(symbol, "symbol");
+    return getTopOptionCandidateForSymbol(symbol);
+  },
+  "bot:johnsTestRun": johnsTestRun,
 };
 
 export function startIpcServer() {

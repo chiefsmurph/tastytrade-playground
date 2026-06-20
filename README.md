@@ -56,13 +56,28 @@ node run core:getBidAskForSymbol AAPL
 ```
 
 ```bash
+node run core:getUnderlyingPrice AAPL
+```
+
+```bash
 node run core:fetchOptionChainsWithVolume RUM
+```
+
+```bash
+node run bot:getOptionCandidatesForSymbol RUM
+```
+
+```bash
+node run bot:getTopOptionCandidateForSymbol RUM
 ```
 
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
+- `core:getUnderlyingPrice <symbol> [timeoutMs]`
 - `core:fetchOptionChainsWithVolume <symbol>`
+- `bot:getOptionCandidatesForSymbol <symbol>`
+- `bot:getTopOptionCandidateForSymbol <symbol>`
 
 How it works
 
