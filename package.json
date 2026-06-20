@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=build/index.js",
     "start:tsx": "tsx src/index.ts",
+    "start:build": "node build/index.js",
     "start": "npm run start:tsx",
     "dev": "tsx watch src/index.ts"
   },
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
+    "esbuild": "^0.25.6",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }

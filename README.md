@@ -22,10 +22,16 @@ cp .env.example .env
 3. Type-check the project:
 
 ```bash
+npm run typecheck
+```
+
+4. Optional: create a bundled JavaScript build:
+
+```bash
 npm run build
 ```
 
-This project runs directly from TypeScript via `tsx`. The build step validates types only and does not emit JavaScript output.
+This project normally runs directly from TypeScript via `tsx`. `typecheck` validates types only, while `build` creates a bundled server entrypoint at `build/index.js`.
 
 Run With IPC
 
@@ -33,6 +39,12 @@ Start the IPC server in one terminal:
 
 ```bash
 npm run start:tsx
+```
+
+Or run the bundled build instead:
+
+```bash
+npm run start:build
 ```
 
 This starts a long-running Node process that listens on a local socket at `.tastytrade-bot.sock`.
@@ -55,6 +67,8 @@ Supported IPC commands
 How it works
 
 - `npm run start:tsx` starts the IPC server from the TypeScript source via `tsx`.
+- `npm run build` bundles the IPC server to `build/index.js` with `esbuild`.
+- `npm run start:build` runs the bundled server with Node.
 - `node run ...` starts a separate Node process that sends a request over `node:net`.
 - The server executes the command and returns the JSON response.
 - The IPC server logs incoming requests, route hits, unknown commands, and outgoing responses.
