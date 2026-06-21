@@ -12,6 +12,7 @@ import {
   getUpdatedBudgetAfterAllocation,
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
+import { getDefaultAccountNumber } from "../ipc-server";
 
 interface LiveOrder {
   cancellable?: boolean;
@@ -40,10 +41,12 @@ function isTerminalOrderStatus(status: string | undefined): boolean {
 }
 
 export async function cancelAllLiveOrders(
-  accountNumber: string,
+  accountNumber?: string,
 ): Promise<CancelOrderResult[]> {
+
+  const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
   const liveOrders = (await tastytradeApi.orderService.getLiveOrders(
-    accountNumber,
+    resolvedAccountNumber,
   )) as LiveOrder[];
 
   const results: CancelOrderResult[] = [];
@@ -63,7 +66,7 @@ export async function cancelAllLiveOrders(
     }
 
     const response = await tastytradeApi.orderService.cancelOrder(
-      accountNumber,
+      resolvedAccountNumber,
       orderId,
     );
     results.push({

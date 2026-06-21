@@ -1,5 +1,10 @@
+import {
+  getAccountBalanceNumber,
+  getEffectiveTotalCapital,
+} from "../../core/account-balance";
 import tastytradeApi from "../../core/tastytrade-client";
 import { getBidAskForSymbol } from "../../core/market-data";
+import { getPositionEvaluations } from "../get-position-evaluations";
 import { PositionGroupEvaluation } from "../evaluate-position";
 import { getTopOptionCandidateForSymbol } from "../get-option-candidates-for-symbol";
 import {
@@ -399,4 +404,25 @@ export function buildInitialBudget(
     ),
     totalCapital,
   };
+}
+
+export async function getCurrentAllocationBudget(
+  accountNumber: string,
+): Promise<AllocationBudget> {
+  const [accountBalance, evaluations] = await Promise.all([
+    tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
+      accountNumber,
+    ),
+    getPositionEvaluations(accountNumber),
+  ]);
+
+  return buildInitialBudget(
+    getAccountBalanceNumber(
+      accountBalance,
+      "derivative_buying_power",
+      "derivative-buying-power",
+    ),
+    getEffectiveTotalCapital(accountBalance),
+    evaluations,
+  );
 }

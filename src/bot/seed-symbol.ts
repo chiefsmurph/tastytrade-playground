@@ -192,6 +192,10 @@ export async function seedSymbol(
   const askPrice = bidAsk?.ask ?? bidAsk?.bid;
 
   if (!(askPrice && askPrice > 0)) {
+    console.warn(
+      `No valid ask or bid price for quote symbol ${quoteSymbol}, skipping seed order. BidAsk:`,
+      bidAsk,
+    );
     return {
       accountNumber: resolvedAccountNumber,
       candidateSymbol,

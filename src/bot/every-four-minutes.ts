@@ -1,7 +1,7 @@
 import tastytradeApi from "../core/tastytrade-client";
 import { getAccountBalanceNumber } from "../core/account-balance";
 import { AccountBalance } from "../core/types";
-import executePositionEvaluations from "./execute-position-evaluations";
+import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
 import { setLastBotRunState } from "./last-run-state";
 
@@ -13,6 +13,9 @@ export default async function everyFourMinutes() {
   );
   const accountNumber = extractedAccountNumbers[0];
   console.log({ accounts, extractedAccountNumbers, accountNumber });
+
+  await cancelAllLiveOrders(accountNumber);
+
   const accountBalances: AccountBalance =
     await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
       accountNumber,
@@ -21,8 +24,6 @@ export default async function everyFourMinutes() {
     "Current account balances:",
     JSON.stringify(accountBalances, null, 2),
   );
-
-  // implement cancel all open orders before getting current buying power to ensure we have the most accurate buying power available for new orders
 
   const buyingPower = getAccountBalanceNumber(
     accountBalances,

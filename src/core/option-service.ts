@@ -1,34 +1,101 @@
+import { getUnderlyingPrice } from "./market-data";
 import tastytradeApi from "./tastytrade-client";
 import { OptionChain, OptionChains, OptionChainWithVolumes } from "./types";
+
+const MAX_VOLUME_SAMPLE_DTE = 50;
+const MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME = 10;
+const MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME = 0.12;
 
 export async function fetchOptionChain(symbol: string): Promise<OptionChain> {
   const data: OptionChains =
     await tastytradeApi.instrumentsService.getNestedOptionChain(symbol);
+  if (data.length > 1) {
+    console.warn(
+      `Received multiple option chains for symbol ${symbol}, using the first one. Data:`,
+      JSON.stringify(data, null, 2),
+    );
+  }
   return data[0];
 }
 
-export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
+function toNumber(value: string | number | undefined): number {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function filterOptionChainForVolumeSampling(
+  optionChain: OptionChain,
+  underlyingPrice: number,
+): OptionChain {
+  const maxStrikeDistance =
+    underlyingPrice > 0
+      ? underlyingPrice * MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME
+      : Number.POSITIVE_INFINITY;
+
+  return {
+    ...optionChain,
+    expirations: optionChain.expirations
+      .filter(
+        (expiration) =>
+          toNumber(expiration["days-to-expiration"]) <= MAX_VOLUME_SAMPLE_DTE,
+      )
+      .map((expiration) => {
+        const strikesWithinBand = expiration.strikes.filter((strike) => {
+          const strikePrice = toNumber(strike["strike-price"]);
+          return Math.abs(strikePrice - underlyingPrice) <= maxStrikeDistance;
+        });
+        const candidateStrikes =
+          strikesWithinBand.length > 0 ? strikesWithinBand : expiration.strikes;
+        const strikes = [...candidateStrikes]
+          .sort((left, right) => {
+            const leftDistance = Math.abs(
+              toNumber(left["strike-price"]) - underlyingPrice,
+            );
+            const rightDistance = Math.abs(
+              toNumber(right["strike-price"]) - underlyingPrice,
+            );
+            return leftDistance - rightDistance;
+          })
+          .slice(0, MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME);
+
+        return {
+          ...expiration,
+          strikes,
+        };
+      })
+      .filter((expiration) => expiration.strikes.length > 0),
+  };
+}
+
+export async function fetchOptionVolumes(
+  optionChain: OptionChain,
+  sampleMs = 5000,
+) {
   try {
-    const nested = await fetchOptionChain(symbol);
-    console.log(JSON.stringify({ nested }, null, 2));
-    const streamerSymbols: string[] = [];
+    console.log(JSON.stringify({ nested: optionChain }, null, 2));
+    const streamerSymbols = new Set<string>();
     function collect(obj: any) {
       if (!obj || typeof obj !== "object") return;
       for (const [k, v] of Object.entries(obj)) {
         if (typeof v === "string" && /streamer-symbol|streamer/.test(k)) {
-          streamerSymbols.push(v);
+          streamerSymbols.add(v);
         } else if (typeof v === "object") {
           collect(v);
         }
       }
     }
-    collect(nested);
-    console.log({ streamerSymbols });
+    collect(optionChain);
+    const resolvedStreamerSymbols = Array.from(streamerSymbols);
+    console.log({ streamerSymbols: resolvedStreamerSymbols });
 
-    if (streamerSymbols.length === 0) {
+    if (resolvedStreamerSymbols.length === 0) {
       console.warn(
         "No streamer symbols found in nested option chain for",
-        symbol,
+        optionChain["underlying-symbol"],
       );
       return {};
     }
@@ -126,11 +193,11 @@ export async function fetchOptionVolumes(symbol: string, sampleMs = 5000) {
       },
     );
 
-    tastytradeApi.quoteStreamer.subscribe(streamerSymbols);
+    tastytradeApi.quoteStreamer.subscribe(resolvedStreamerSymbols);
 
     await new Promise((res) => setTimeout(res, sampleMs));
 
-    tastytradeApi.quoteStreamer.unsubscribe(streamerSymbols);
+    tastytradeApi.quoteStreamer.unsubscribe(resolvedStreamerSymbols);
     removeListener();
     tastytradeApi.quoteStreamer.disconnect();
 
@@ -211,11 +278,38 @@ export function mergeVolumesIntoChain(
 
 export async function fetchOptionChainWithVolume(symbol: string) {
   const optionChain = await fetchOptionChain(symbol);
+  const underlyingPrice = await getUnderlyingPrice(symbol);
+  const filteredForVolumeSampling = filterOptionChainForVolumeSampling(
+    optionChain,
+    underlyingPrice?.underlyingPrice || 0,
+  );
+  const totalStrikeCount = optionChain.expirations.reduce(
+    (sum, expiration) => sum + expiration.strikes.length,
+    0,
+  );
+  const sampledStrikeCount = filteredForVolumeSampling.expirations.reduce(
+    (sum, expiration) => sum + expiration.strikes.length,
+    0,
+  );
   console.log(
     `Option chain for ${symbol}`,
     JSON.stringify(optionChain, null, 2),
   );
-  const optionVolumes = await fetchOptionVolumes(symbol, 5000);
+  console.log(
+    JSON.stringify({
+      scope: "option-volume-sampling-filter",
+      symbol,
+      totalExpirations: optionChain.expirations.length,
+      sampledExpirations: filteredForVolumeSampling.expirations.length,
+      totalStrikes: totalStrikeCount,
+      sampledStrikes: sampledStrikeCount,
+      maxDte: MAX_VOLUME_SAMPLE_DTE,
+      maxStrikeDistanceRatio: MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME,
+      maxStrikesPerExpiration: MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME,
+      underlyingPrice: underlyingPrice?.underlyingPrice ?? null,
+    }),
+  );
+  const optionVolumes = await fetchOptionVolumes(filteredForVolumeSampling, 5000);
   const merged = mergeVolumesIntoChain(optionChain, optionVolumes);
   console.log(
     "Merged option chain with volumes:",

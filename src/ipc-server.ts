@@ -9,6 +9,7 @@ import {
   getOptionHealthForSymbol,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
+import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
 import everyFourMinutes from "./bot/every-four-minutes";
 import { cancelAllLiveOrders } from "./bot/execute-position-evaluations";
@@ -39,7 +40,7 @@ const socketPath =
   process.env.TASTYTRADE_BOT_SOCKET ||
   path.join(process.cwd(), ".tastytrade-playground.sock");
 
-async function getDefaultAccountNumber(): Promise<string> {
+export async function getDefaultAccountNumber(): Promise<string> {
   const accounts =
     await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
   const accountNumber = accounts[0]?.account?.["account-number"];
@@ -83,6 +84,10 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     const normalizedSide = side === "put" ? "put" : "call";
     return getOptionHealthForSymbol(symbol, normalizedSide);
+  },
+  "bot:getCurrentAllocationBudget": async ([accountNumber]) => {
+    const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+    return getCurrentAllocationBudget(resolvedAccountNumber);
   },
   "bot:seedSymbol": async ([symbol, side, accountNumber]) => {
     assertArg(symbol, "symbol");

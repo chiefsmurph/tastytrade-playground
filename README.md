@@ -77,6 +77,10 @@ node run bot:getOptionHealthForSymbol RUM call
 
 This returns keyed target checks for `7`, `14`, and `30` DTE plus a compact summary of `healthyTargets`, `missingTargets`, and `fallbackTargets`.
 
+```bash
+node run bot:getCurrentAllocationBudget
+```
+
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
@@ -85,6 +89,7 @@ Supported IPC commands
 - `bot:getOptionCandidates <symbol> [call|put]`
 - `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
 - `bot:getOptionHealthForSymbol <symbol> [call|put]`
+- `bot:getCurrentAllocationBudget [accountNumber]`
 - `bot:everyFourMinutes`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`
