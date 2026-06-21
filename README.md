@@ -110,12 +110,29 @@ node run bot:getMarketOpenSchedulerStatus
 node run bot:stopMarketOpenScheduler
 ```
 
+For another Node process on the same machine, prefer the reusable IPC client instead of spawning `node run ...`:
+
+```js
+import { sendIpcCommand } from "./ipc-client.js";
+
+const optionHealth = await sendIpcCommand(
+	"bot:getOptionHealthForSymbol",
+	["RUM", "call"],
+	{
+		socketPath: "/absolute/path/to/tastytrade-playground/.tastytrade-playground.sock",
+	},
+);
+```
+
+If you copy `ipc-client.js` into another project, the only repo-specific default is the socket filename. You can either pass `socketPath` explicitly, or override `socketFileName` / `envVarName` when resolving the socket path.
+
 How it works
 
 - `npm run start:tsx` starts the IPC server from the TypeScript source via `tsx`.
 - `npm run build` bundles the IPC server to `build/index.js` with `esbuild`.
 - `npm run start:build` runs the bundled server with Node.
-- `node run ...` starts a separate Node process that sends a request over `node:net`.
+- `ipc-client.js` sends JSON requests over `node:net` to the local socket.
+- `node run ...` is a thin CLI wrapper around `ipc-client.js`.
 - The server executes the command and returns the JSON response.
 - The IPC server logs incoming requests, route hits, unknown commands, and outgoing responses.
 

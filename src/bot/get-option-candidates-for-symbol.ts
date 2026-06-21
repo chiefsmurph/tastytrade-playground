@@ -48,7 +48,7 @@ export interface OptionHealthForSymbolResult {
 
 function getDefaultTopCandidateSelection() {
   const currentTime = new Date();
-  currentTime.setHours(11, 0, 0, 0); // Set to 11:00 AM
+  // currentTime.setHours(11, 0, 0, 0); // Set to 11:00 AM
   const strategy = evaluateTradingStrategy({
     currentBidPrice: 1,
     currentAskPrice: 1,

@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-import net from "node:net";
-import path from "node:path";
+import { sendIpcCommand } from "./ipc-client.js";
 
 const [, , command, ...args] = process.argv;
-const socketPath =
-  process.env.TASTYTRADE_BOT_SOCKET ||
-  path.join(process.cwd(), ".tastytrade-playground.sock");
 
 function usage() {
   console.error("Usage: node run <namespace:function> [args...]");
@@ -17,51 +13,22 @@ if (!command) {
   usage();
 }
 
-const payload = JSON.stringify({
-  id: `${Date.now()}`,
-  command,
-  args,
-});
+try {
+  const result = await sendIpcCommand(command, args);
 
-const socket = net.createConnection(socketPath);
-let buffer = "";
-
-socket.on("connect", () => {
-  socket.write(`${payload}\n`);
-});
-
-socket.on("data", (chunk) => {
-  buffer += chunk.toString();
-  const newlineIndex = buffer.indexOf("\n");
-  if (newlineIndex === -1) {
-    return;
+  if (typeof result === "string") {
+    console.log(result);
+  } else {
+    console.log(JSON.stringify(result, null, 2));
   }
-
-  const raw = buffer.slice(0, newlineIndex);
-  buffer = buffer.slice(newlineIndex + 1);
-
-  try {
-    const response = JSON.parse(raw);
-    if (!response.ok) {
-      console.error(response.error || "IPC request failed");
-      process.exit(2);
-    }
-
-    if (typeof response.result === "string") {
-      console.log(response.result);
-    } else {
-      console.log(JSON.stringify(response.result, null, 2));
-    }
-    socket.end();
-  } catch (error) {
-    console.error("Invalid IPC response", error);
-    process.exit(3);
-  }
-});
-
-socket.on("error", (error) => {
+} catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`Could not connect to IPC server at ${socketPath}: ${message}`);
-  console.error("Start the server first with: npm run start:tsx");
-  process.exit(4);
-});
+  console.error(message);
+
+  if (message.includes("Could not connect to IPC server")) {
+    console.error("Start the server first with: npm run start:tsx");
+    process.exit(4);
+  }
+
+  process.exit(2);
+}
