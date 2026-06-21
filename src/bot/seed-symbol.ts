@@ -26,6 +26,7 @@ export interface SeedSymbolResult {
   skippedReason?: string;
   strategy?: ReturnType<typeof getTopOptionCandidateForSymbol extends (...args: any[]) => Promise<infer T> ? NonNullable<T> extends { strategy?: infer S } ? () => S : never : never>;
   symbol: string;
+  usedDteFallback?: boolean;
 }
 
 function extractDryRunSkipReason(error: unknown): string {
@@ -100,7 +101,25 @@ export async function seedSymbol(
   const candidate = await getTopOptionCandidateForSymbol(symbol, side);
   const strategy = candidate?.strategy;
 
-  console.log(JSON.stringify({ symbol: normalizedSymbol, side, resolvedAccountNumber, strategy }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        scope: "seed-symbol-candidate",
+        symbol: normalizedSymbol,
+        side,
+        resolvedAccountNumber,
+        strategy,
+        candidateDTE: candidate?.dte,
+        minDTE: candidate?.minDTE,
+        maxDTE: candidate?.maxDTE,
+        preferredDTE: candidate?.preferredDTE,
+        usedDteFallback: candidate?.usedDteFallback ?? false,
+        candidateSymbol: candidate?.symbol ?? candidate?.call ?? candidate?.put ?? null,
+      },
+      null,
+      2,
+    ),
+  );
   if (
     !strategy ||
     strategy.action !== "MANAGE_ALLOCATION" ||
@@ -116,12 +135,14 @@ export async function seedSymbol(
       skippedReason: "time-of-day strategy is not allowing new accumulation",
       strategy,
       symbol: normalizedSymbol,
+      usedDteFallback: candidate?.usedDteFallback,
     };
   }
 
   const minDTE = candidate?.minDTE;
   const maxDTE = candidate?.maxDTE;
   const preferredDTE = candidate?.preferredDTE;
+  const usedDteFallback = candidate?.usedDteFallback;
 
   const candidateSymbol =
     side === "put"
@@ -146,6 +167,7 @@ export async function seedSymbol(
       skippedReason: "no option candidate found",
       strategy,
       symbol: normalizedSymbol,
+      usedDteFallback,
     };
   }
 
@@ -162,6 +184,7 @@ export async function seedSymbol(
       skippedReason: "candidate quote symbol unavailable",
       strategy,
       symbol: normalizedSymbol,
+      usedDteFallback,
     };
   }
 
@@ -182,6 +205,7 @@ export async function seedSymbol(
       skippedReason: "candidate ask quote unavailable",
       strategy,
       symbol: normalizedSymbol,
+      usedDteFallback,
     };
   }
 
@@ -232,6 +256,7 @@ export async function seedSymbol(
       skippedReason: "insufficient derivative buying power for seed order",
       strategy,
       symbol: normalizedSymbol,
+      usedDteFallback,
     };
   }
 
@@ -262,6 +287,7 @@ export async function seedSymbol(
       skippedReason: extractDryRunSkipReason(error),
       strategy,
       symbol: normalizedSymbol,
+      usedDteFallback,
     };
   }
 
@@ -287,6 +313,7 @@ export async function seedSymbol(
     side,
     strategy,
     symbol: normalizedSymbol,
+    usedDteFallback,
   };
 }
 

@@ -1,6 +1,10 @@
 import { getUnderlyingPrice } from "../core/market-data";
 import { fetchOptionChainWithVolume } from "../core/option-service";
-import { OptionChain, OptionChainWithVolumes } from "../core/types";
+import {
+  OptionChain,
+  OptionChainWithVolumes,
+  StrikeWithVolumes,
+} from "../core/types";
 
 const MIN_DTE = 28; // 4 weeks
 const MAX_DTE = 42; // 6 weeks
@@ -13,8 +17,29 @@ export interface OptionCandidateSelectionOptions {
   preferredDTE?: number;
 }
 
+export interface CandidateExpirationSelection {
+  expirations: OptionChain["expirations"];
+  usedDteFallback: boolean;
+}
+
+export interface OptionCandidate extends StrikeWithVolumes {
+  dte: number;
+  expirationDate: string;
+  expirationType: string;
+  streamerSymbol?: string;
+  strike: number;
+  symbol?: string;
+}
+
 function num(value: string | number): number {
   return typeof value === "number" ? value : Number(value);
+}
+
+export function getOptionCandidateVolume(
+  candidate: Pick<OptionCandidate, "callVolume" | "putVolume">,
+  side: "call" | "put",
+): number {
+  return side === "call" ? Number(candidate.callVolume || 0) : Number(candidate.putVolume || 0);
 }
 
 export async function getOptionCandidates(
@@ -30,7 +55,7 @@ export async function getOptionCandidates(
     selectionOptions,
   ).map((candidate) => ({
     ...candidate,
-    meetsVolumeRequirement: (candidate[`${side}Volume`] || 0) >= MIN_VOLUME,
+    meetsVolumeRequirement: getOptionCandidateVolume(candidate, side) >= MIN_VOLUME,
   }));
   if (optionCandidates.length === 0) {
     console.log("No option candidates found for", symbol);
@@ -67,37 +92,21 @@ export function chooseOptionCandidates(
   optionChain: OptionChainWithVolumes,
   underlyingPrice: number,
   selectionOptions: OptionCandidateSelectionOptions = {},
-) {
-  const minDTE = selectionOptions.minDTE ?? MIN_DTE;
-  const maxDTE = selectionOptions.maxDTE ?? MAX_DTE;
-  const preferredDTE = selectionOptions.preferredDTE ?? 35;
-  const expirations = optionChain.expirations
-    .filter((exp) => {
-      const dte = num(exp["days-to-expiration"]);
-      return dte >= minDTE && dte <= maxDTE;
-    })
-    .sort((a, b) => {
-      // Prefer regular monthly expirations, then closer to the preferred DTE.
-      const aRegular = a["expiration-type"] === "Regular" ? 0 : 1;
-      const bRegular = b["expiration-type"] === "Regular" ? 0 : 1;
+): OptionCandidate[] {
+  const { expirations, usedDteFallback } = resolveCandidateExpirations(
+    optionChain,
+    selectionOptions,
+  );
 
-      if (aRegular !== bRegular) return aRegular - bRegular;
-
-      return (
-        Math.abs(num(a["days-to-expiration"]) - preferredDTE) -
-        Math.abs(num(b["days-to-expiration"]) - preferredDTE)
-      );
-    });
-
-  if (!expirations.length) {
+  if (usedDteFallback) {
     console.warn(
       "No expirations found within DTE range for",
       optionChain["underlying-symbol"],
+      "falling back to nearest available expiration",
     );
-    return [];
   }
 
-  const candidates = [];
+  const candidates: OptionCandidate[] = [];
 
   for (const exp of expirations) {
     const strikes = exp.strikes
@@ -131,4 +140,59 @@ export function chooseOptionCandidates(
   }
 
   return candidates;
+}
+
+export function resolveCandidateExpirations(
+  optionChain: OptionChainWithVolumes,
+  selectionOptions: OptionCandidateSelectionOptions = {},
+): CandidateExpirationSelection {
+  const minDTE = selectionOptions.minDTE ?? MIN_DTE;
+  const maxDTE = selectionOptions.maxDTE ?? MAX_DTE;
+  const preferredDTE = selectionOptions.preferredDTE ?? 35;
+  const expirationsInRange = optionChain.expirations
+    .filter((exp) => {
+      const dte = num(exp["days-to-expiration"]);
+      return dte >= minDTE && dte <= maxDTE;
+    })
+    .sort((a, b) => compareExpirations(a, b, preferredDTE));
+  const expirations =
+    expirationsInRange.length > 0
+      ? expirationsInRange
+      : [...optionChain.expirations].sort((a, b) =>
+          compareExpirations(a, b, preferredDTE),
+        );
+
+  if (!expirationsInRange.length) {
+    if (!expirations.length) {
+      console.warn(
+        "No expirations found for",
+        optionChain["underlying-symbol"],
+      );
+      return { expirations: [], usedDteFallback: false };
+    }
+  }
+
+  return {
+    expirations,
+    usedDteFallback: expirationsInRange.length === 0,
+  };
+}
+
+function compareExpirations(
+  a: OptionChain["expirations"][number],
+  b: OptionChain["expirations"][number],
+  preferredDTE: number,
+) {
+  // Prefer regular monthly expirations, then closer to the preferred DTE.
+  const aRegular = a["expiration-type"] === "Regular" ? 0 : 1;
+  const bRegular = b["expiration-type"] === "Regular" ? 0 : 1;
+
+  if (aRegular !== bRegular) {
+    return aRegular - bRegular;
+  }
+
+  return (
+    Math.abs(num(a["days-to-expiration"]) - preferredDTE) -
+    Math.abs(num(b["days-to-expiration"]) - preferredDTE)
+  );
 }

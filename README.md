@@ -64,20 +64,27 @@ node run core:fetchOptionChainsWithVolume RUM
 ```
 
 ```bash
-node run bot:getOptionCandidatesForSymbol RUM
+node run bot:getOptionCandidates RUM call
 ```
 
 ```bash
-node run bot:getTopOptionCandidateForSymbol RUM
+node run bot:getTopOptionCandidateForSymbol RUM call
 ```
+
+```bash
+node run bot:getOptionHealthForSymbol RUM call
+```
+
+This returns keyed target checks for `7`, `14`, and `30` DTE plus a compact summary of `healthyTargets`, `missingTargets`, and `fallbackTargets`.
 
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
 - `core:getUnderlyingPrice <symbol> [timeoutMs]`
 - `core:fetchOptionChainsWithVolume <symbol>`
-- `bot:getOptionCandidatesForSymbol <symbol>`
-- `bot:getTopOptionCandidateForSymbol <symbol>`
+- `bot:getOptionCandidates <symbol> [call|put]`
+- `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
+- `bot:getOptionHealthForSymbol <symbol> [call|put]`
 - `bot:everyFourMinutes`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`

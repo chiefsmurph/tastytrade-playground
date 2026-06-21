@@ -6,7 +6,7 @@ import { fetchOptionChainWithVolume } from "./core/option-service";
 import tastytradeApi from "./core/tastytrade-client";
 import johnsTestRun from "./bot/johns-test-run";
 import {
-  getOptionCandidatesForSymbol,
+  getOptionHealthForSymbol,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
 import { getOptionCandidates } from "./bot/option-contracts";
@@ -69,10 +69,6 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     return fetchOptionChainWithVolume(symbol);
   },
-  "bot:getOptionCandidatesForSymbol": async ([symbol]) => {
-    assertArg(symbol, "symbol");
-    return getOptionCandidatesForSymbol(symbol);
-  },
   "bot:getOptionCandidates": async ([symbol, side]) => {
     assertArg(symbol, "symbol");
     const normalizedSide = side === "put" ? "put" : "call";
@@ -82,6 +78,11 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     const normalizedSide = side === "put" ? "put" : "call";
     return getTopOptionCandidateForSymbol(symbol, normalizedSide);
+  },
+  "bot:getOptionHealthForSymbol": async ([symbol, side]) => {
+    assertArg(symbol, "symbol");
+    const normalizedSide = side === "put" ? "put" : "call";
+    return getOptionHealthForSymbol(symbol, normalizedSide);
   },
   "bot:seedSymbol": async ([symbol, side, accountNumber]) => {
     assertArg(symbol, "symbol");

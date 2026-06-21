@@ -2,11 +2,14 @@ import { getUnderlyingPrice } from "../core/market-data";
 import { fetchOptionChainWithVolume } from "../core/option-service";
 import {
   chooseOptionCandidates,
+  getOptionCandidateVolume,
   OptionCandidateSelectionOptions,
+  resolveCandidateExpirations,
 } from "./option-contracts";
 import { evaluateTradingStrategy } from "./evaluate-trading-strategy";
 
 const DEFAULT_TOP_CANDIDATE_DTE_TOLERANCE = 7;
+const DEFAULT_OPTION_HEALTH_DTES = [7, 14, 30] as const;
 
 export interface TopOptionCandidateForSymbolResult {
   "call-streamer-symbol"?: string;
@@ -22,6 +25,25 @@ export interface TopOptionCandidateForSymbolResult {
   strategy?: ReturnType<typeof evaluateTradingStrategy>;
   streamerSymbol?: string;
   symbol?: string;
+  usedDteFallback?: boolean;
+}
+
+export interface OptionHealthCandidateResult {
+  candidate?: TopOptionCandidateForSymbolResult;
+  targetDTE: number;
+}
+
+export interface OptionHealthSummary {
+  fallbackTargets: number[];
+  healthyTargets: number[];
+  missingTargets: number[];
+}
+
+export interface OptionHealthForSymbolResult {
+  requestedSide: "call" | "put";
+  symbol: string;
+  summary: OptionHealthSummary;
+  targets: Record<string, TopOptionCandidateForSymbolResult | undefined>;
 }
 
 function getDefaultTopCandidateSelection() {
@@ -44,23 +66,10 @@ function getDefaultTopCandidateSelection() {
   };
 }
 
-export async function getOptionCandidatesForSymbol(symbol: string) {
-  const optionChain = await fetchOptionChainWithVolume(symbol);
-  const underlyingPrice = await getUnderlyingPrice(symbol);
-  const optionCandidates = chooseOptionCandidates(
-    optionChain,
-    underlyingPrice?.underlyingPrice || 0,
-  );
-  console.log(JSON.stringify({ optionChain, optionCandidates }, null, 2));
-  return optionCandidates;
-}
-
-export async function getTopOptionCandidateForSymbol(
-  symbol: string,
-  side: "call" | "put" = "call",
+function getResolvedSelectionOptions(
   targetDTE?: number,
   selectionOptions?: OptionCandidateSelectionOptions,
-): Promise<TopOptionCandidateForSymbolResult | undefined> {
+) {
   const defaultSelection =
     targetDTE == null && selectionOptions == null
       ? getDefaultTopCandidateSelection()
@@ -76,20 +85,40 @@ export async function getTopOptionCandidateForSymbol(
           preferredDTE,
         }
       : undefined);
-  const optionChain = await fetchOptionChainWithVolume(symbol);
-  const underlyingPrice = await getUnderlyingPrice(symbol);
+
+  return {
+    defaultSelection,
+    preferredDTE,
+    resolvedSelectionOptions,
+  };
+}
+
+function buildTopOptionCandidateResult(
+  symbol: string,
+  side: "call" | "put",
+  optionChain: Awaited<ReturnType<typeof fetchOptionChainWithVolume>>,
+  underlyingPrice: number,
+  targetDTE?: number,
+  selectionOptions?: OptionCandidateSelectionOptions,
+): TopOptionCandidateForSymbolResult | undefined {
+  const { defaultSelection, preferredDTE, resolvedSelectionOptions } =
+    getResolvedSelectionOptions(targetDTE, selectionOptions);
+  const { usedDteFallback } = resolveCandidateExpirations(
+    optionChain,
+    resolvedSelectionOptions,
+  );
   const optionCandidates = chooseOptionCandidates(
     optionChain,
-    underlyingPrice?.underlyingPrice || 0,
+    underlyingPrice,
     resolvedSelectionOptions,
   ).map((candidate) => ({
     ...candidate,
-    meetsVolumeRequirement: (candidate[`${side}Volume`] || 0) > 0,
+    meetsVolumeRequirement: getOptionCandidateVolume(candidate, side) > 40,
   }));
 
   const sortedCandidates = [...optionCandidates].sort((a, b) => {
-    const aVolume = Number(a[`${side}Volume`] || 0);
-    const bVolume = Number(b[`${side}Volume`] || 0);
+    const aVolume = getOptionCandidateVolume(a, side);
+    const bVolume = getOptionCandidateVolume(b, side);
     const aDteDelta = preferredDTE == null ? 0 : Math.abs(Number(a.dte) - preferredDTE);
     const bDteDelta = preferredDTE == null ? 0 : Math.abs(Number(b.dte) - preferredDTE);
 
@@ -101,7 +130,11 @@ export async function getTopOptionCandidateForSymbol(
   });
 
   const topCandidate = sortedCandidates[0];
-  console.log(`Top option candidate for ${symbol}:`, topCandidate);
+  console.log(`Top option candidate for ${symbol}:`, {
+    ...topCandidate,
+    requestedSide: side,
+    usedDteFallback,
+  });
   if (!topCandidate) {
     return {
       maxDTE: resolvedSelectionOptions?.maxDTE,
@@ -109,6 +142,7 @@ export async function getTopOptionCandidateForSymbol(
       preferredDTE,
       requestedSide: side,
       strategy: defaultSelection?.strategy,
+      usedDteFallback,
     };
   }
 
@@ -119,5 +153,88 @@ export async function getTopOptionCandidateForSymbol(
     preferredDTE,
     requestedSide: side,
     strategy: defaultSelection?.strategy,
+    usedDteFallback,
+  };
+}
+
+export async function getTopOptionCandidateForSymbol(
+  symbol: string,
+  side: "call" | "put" = "call",
+  targetDTE?: number,
+  selectionOptions?: OptionCandidateSelectionOptions,
+): Promise<TopOptionCandidateForSymbolResult | undefined> {
+  const optionChain = await fetchOptionChainWithVolume(symbol);
+  const underlyingPrice = await getUnderlyingPrice(symbol);
+  return buildTopOptionCandidateResult(
+    symbol,
+    side,
+    optionChain,
+    underlyingPrice?.underlyingPrice || 0,
+    targetDTE,
+    selectionOptions,
+  );
+}
+
+export async function getOptionHealthForSymbol(
+  symbol: string,
+  side: "call" | "put" = "call",
+  targetDTEs: readonly number[] = DEFAULT_OPTION_HEALTH_DTES,
+): Promise<OptionHealthForSymbolResult> {
+  const optionChain = await fetchOptionChainWithVolume(symbol);
+  const underlyingPrice = await getUnderlyingPrice(symbol);
+  const resolvedUnderlyingPrice = underlyingPrice?.underlyingPrice || 0;
+  const normalizedSymbol = symbol.toUpperCase();
+
+  const targets = Object.fromEntries(
+    targetDTEs.map((targetDTE) => [
+      String(targetDTE),
+      buildTopOptionCandidateResult(
+        normalizedSymbol,
+        side,
+        optionChain,
+        resolvedUnderlyingPrice,
+        targetDTE,
+      ),
+    ]),
+  ) as Record<string, TopOptionCandidateForSymbolResult | undefined>;
+  const summary = targetDTEs.reduce<OptionHealthSummary>(
+    (result, targetDTE) => {
+      const candidate = targets[String(targetDTE)];
+
+      if (!candidate?.symbol) {
+        result.missingTargets.push(targetDTE);
+        return result;
+      }
+
+      result.healthyTargets.push(targetDTE);
+
+      if (candidate.usedDteFallback) {
+        result.fallbackTargets.push(targetDTE);
+      }
+
+      return result;
+    },
+    {
+      fallbackTargets: [],
+      healthyTargets: [],
+      missingTargets: [],
+    },
+  );
+
+  console.log(
+    JSON.stringify({
+      requestedSide: side,
+      scope: "option-health",
+      summary,
+      symbol: normalizedSymbol,
+      targets,
+    }),
+  );
+
+  return {
+    requestedSide: side,
+    summary,
+    symbol: normalizedSymbol,
+    targets,
   };
 }

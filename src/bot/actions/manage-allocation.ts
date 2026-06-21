@@ -28,13 +28,18 @@ export interface AllocationRouteResult {
 export interface AllocationExecutionResult {
   accountNumber: string;
   action: "MANAGE_ALLOCATION";
+  candidateDTE?: number;
   estimatedOrderValue?: number;
+  maxDTE?: number;
+  minDTE?: number;
   orderResponses?: unknown[];
   placedOrder: boolean;
+  preferredDTE?: number;
   quantity?: number;
   routeOrders: AllocationRouteResult[];
   skippedReason?: string;
   underlyingSymbol: string;
+  usedDteFallback?: boolean;
 }
 
 export interface AllocationBudget {
@@ -248,14 +253,34 @@ export async function manageAllocationForGroup(
     evaluation.strategy.targetDTE,
   );
 
+  console.log(
+    JSON.stringify({
+      scope: "manage-allocation-candidate",
+      underlyingSymbol: evaluation.underlyingSymbol,
+      requestedSide: optionSide,
+      targetDTE: evaluation.strategy.targetDTE,
+      candidateDTE: candidate?.dte,
+      minDTE: candidate?.minDTE,
+      maxDTE: candidate?.maxDTE,
+      preferredDTE: candidate?.preferredDTE,
+      usedDteFallback: candidate?.usedDteFallback ?? false,
+      symbol: candidate?.symbol ?? null,
+    }),
+  );
+
   if (!candidate?.symbol) {
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
+      candidateDTE: candidate?.dte,
+      maxDTE: candidate?.maxDTE,
+      minDTE: candidate?.minDTE,
       placedOrder: false,
+      preferredDTE: candidate?.preferredDTE,
       routeOrders: [],
       skippedReason: "no option candidate found",
       underlyingSymbol: evaluation.underlyingSymbol,
+      usedDteFallback: candidate?.usedDteFallback,
     };
   }
 
@@ -275,10 +300,15 @@ export async function manageAllocationForGroup(
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
+      candidateDTE: candidate.dte,
+      maxDTE: candidate.maxDTE,
+      minDTE: candidate.minDTE,
       placedOrder: false,
+      preferredDTE: candidate.preferredDTE,
       routeOrders: [],
       skippedReason: "candidate quote unavailable",
       underlyingSymbol: evaluation.underlyingSymbol,
+      usedDteFallback: candidate.usedDteFallback,
     };
   }
 
@@ -291,10 +321,15 @@ export async function manageAllocationForGroup(
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
+      candidateDTE: candidate.dte,
+      maxDTE: candidate.maxDTE,
+      minDTE: candidate.minDTE,
       placedOrder: false,
+      preferredDTE: candidate.preferredDTE,
       routeOrders,
       skippedReason: "insufficient budget for one contract",
       underlyingSymbol: evaluation.underlyingSymbol,
+      usedDteFallback: candidate.usedDteFallback,
     };
   }
 
@@ -315,14 +350,19 @@ export async function manageAllocationForGroup(
   return {
     accountNumber,
     action: "MANAGE_ALLOCATION",
+    candidateDTE: candidate.dte,
     estimatedOrderValue,
+    maxDTE: candidate.maxDTE,
+    minDTE: candidate.minDTE,
     orderResponses: placedRouteOrders
       .filter((routeOrder) => routeOrder.orderResponse != null)
       .map((routeOrder) => routeOrder.orderResponse),
     placedOrder: placedRouteOrders.some((routeOrder) => routeOrder.placedOrder),
+    preferredDTE: candidate.preferredDTE,
     quantity,
     routeOrders: placedRouteOrders,
     underlyingSymbol: evaluation.underlyingSymbol,
+    usedDteFallback: candidate.usedDteFallback,
   };
 }
 
