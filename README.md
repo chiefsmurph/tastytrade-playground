@@ -78,6 +78,30 @@ Supported IPC commands
 - `core:fetchOptionChainsWithVolume <symbol>`
 - `bot:getOptionCandidatesForSymbol <symbol>`
 - `bot:getTopOptionCandidateForSymbol <symbol>`
+- `bot:everyFourMinutes`
+- `bot:startMarketOpenScheduler`
+- `bot:stopMarketOpenScheduler`
+- `bot:getMarketOpenSchedulerStatus`
+
+Market-open scheduler
+
+The tastytrade market sessions docs expose `GET /market-time/equities/sessions/current`, which is the right source of truth for whether the equity-options session is open. This bot now uses that endpoint and only runs the live four-minute loop during the regular equities session.
+
+Important: equity options trade during the regular session only. Extended-hours equity sessions are not treated as open for this scheduler.
+
+To auto-start the scheduler when the IPC server boots:
+
+```bash
+BOT_RUN_ON_SCHEDULE=true npm run start:tsx
+```
+
+To manage it manually over IPC:
+
+```bash
+node run bot:startMarketOpenScheduler
+node run bot:getMarketOpenSchedulerStatus
+node run bot:stopMarketOpenScheduler
+```
 
 How it works
 

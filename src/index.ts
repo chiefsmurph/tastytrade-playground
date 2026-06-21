@@ -1,3 +1,9 @@
 import { startIpcServer } from "./ipc-server";
+import { startMarketOpenScheduler } from "./bot/market-open-scheduler";
 
 startIpcServer();
+
+if (process.env.BOT_RUN_ON_SCHEDULE === "true") {
+	console.log("Starting market-open scheduler");
+	startMarketOpenScheduler();
+}

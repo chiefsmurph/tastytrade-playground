@@ -7,6 +7,12 @@ const MAX_DTE = 42; // 6 weeks
 const STRIKES_AROUND_ATM = 2;
 const MIN_VOLUME = 120;
 
+export interface OptionCandidateSelectionOptions {
+  maxDTE?: number;
+  minDTE?: number;
+  preferredDTE?: number;
+}
+
 function num(value: string | number): number {
   return typeof value === "number" ? value : Number(value);
 }
@@ -14,12 +20,14 @@ function num(value: string | number): number {
 export async function getOptionCandidates(
   symbol: string,
   side: "call" | "put" = "call",
+  selectionOptions?: OptionCandidateSelectionOptions,
 ): Promise<ReturnType<typeof chooseOptionCandidates>> {
   const optionChain = await fetchOptionChainWithVolume(symbol);
   const underlyingPrice = await getUnderlyingPrice(symbol);
   const optionCandidates = chooseOptionCandidates(
     optionChain,
     underlyingPrice?.underlyingPrice || 0,
+    selectionOptions,
   ).map((candidate) => ({
     ...candidate,
     meetsVolumeRequirement: (candidate[`${side}Volume`] || 0) >= MIN_VOLUME,
@@ -58,22 +66,26 @@ export function sortOptionChainByVolume(
 export function chooseOptionCandidates(
   optionChain: OptionChainWithVolumes,
   underlyingPrice: number,
+  selectionOptions: OptionCandidateSelectionOptions = {},
 ) {
+  const minDTE = selectionOptions.minDTE ?? MIN_DTE;
+  const maxDTE = selectionOptions.maxDTE ?? MAX_DTE;
+  const preferredDTE = selectionOptions.preferredDTE ?? 35;
   const expirations = optionChain.expirations
     .filter((exp) => {
       const dte = num(exp["days-to-expiration"]);
-      return dte >= MIN_DTE && dte <= MAX_DTE;
+      return dte >= minDTE && dte <= maxDTE;
     })
     .sort((a, b) => {
-      // Prefer regular monthly expirations, then closer to 35 DTE
+      // Prefer regular monthly expirations, then closer to the preferred DTE.
       const aRegular = a["expiration-type"] === "Regular" ? 0 : 1;
       const bRegular = b["expiration-type"] === "Regular" ? 0 : 1;
 
       if (aRegular !== bRegular) return aRegular - bRegular;
 
       return (
-        Math.abs(num(a["days-to-expiration"]) - 35) -
-        Math.abs(num(b["days-to-expiration"]) - 35)
+        Math.abs(num(a["days-to-expiration"]) - preferredDTE) -
+        Math.abs(num(b["days-to-expiration"]) - preferredDTE)
       );
     });
 

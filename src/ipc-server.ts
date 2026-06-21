@@ -10,6 +10,13 @@ import {
 } from "./bot/get-option-candidates-for-symbol";
 import { getOptionCandidates } from "./bot/option-contracts";
 import everyFourMinutes from "./bot/every-four-minutes";
+import seedSymbol from "./bot/seed-symbol";
+import {
+  getMarketOpenSchedulerStatus,
+  startMarketOpenScheduler,
+  stopMarketOpenScheduler,
+} from "./bot/market-open-scheduler";
+import { getLastBotRunState } from "./bot/last-run-state";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 
@@ -54,12 +61,23 @@ const commandHandlers: Record<string, CommandHandler> = {
     const normalizedSide = side === "put" ? "put" : "call";
     return getOptionCandidates(symbol, normalizedSide);
   },
-  "bot:getTopOptionCandidateForSymbol": async ([symbol]) => {
+  "bot:getTopOptionCandidateForSymbol": async ([symbol, side]) => {
     assertArg(symbol, "symbol");
-    return getTopOptionCandidateForSymbol(symbol);
+    const normalizedSide = side === "put" ? "put" : "call";
+    return getTopOptionCandidateForSymbol(symbol, normalizedSide);
+  },
+  "bot:seedSymbol": async ([symbol, side, accountNumber]) => {
+    assertArg(symbol, "symbol");
+    const normalizedSide = side === "put" ? "put" : "call";
+    return seedSymbol(symbol, normalizedSide, accountNumber);
   },
   "bot:johnsTestRun": johnsTestRun,
   "bot:everyFourMinutes": everyFourMinutes,
+  "bot:getLastEveryFourMinutesRun": async () => getLastBotRunState(),
+  "bot:getMarketOpenSchedulerStatus": async () =>
+    getMarketOpenSchedulerStatus(),
+  "bot:startMarketOpenScheduler": async () => startMarketOpenScheduler(),
+  "bot:stopMarketOpenScheduler": async () => stopMarketOpenScheduler(),
 };
 
 export function startIpcServer() {
@@ -147,9 +165,32 @@ async function handleRequest(raw: string): Promise<IpcResponse> {
     const result = await handler(args);
     return { id, ok: true, result };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatIpcError(error);
     return { id, ok: false, error: message };
   }
+}
+
+function formatIpcError(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return String(error);
+  }
+
+  const maybeAxiosError = error as {
+    message?: string;
+    response?: {
+      data?: unknown;
+      status?: number;
+    };
+  };
+  const responseData = maybeAxiosError.response?.data;
+
+  if (responseData != null) {
+    try {
+      return JSON.stringify(responseData);
+    } catch {}
+  }
+
+  return maybeAxiosError.message ?? String(error);
 }
 
 function logRequest(
