@@ -16,8 +16,19 @@ npm install
 
 ```bash
 cp .env.example .env
-# open .env and add your API key and account id
+# open .env and set the required values
 ```
+
+Required `.env` values (from `.env.example`):
+
+- `BASE_URL` (default: `https://api.tastyworks.com`)
+- `API_CLIENT_SECRET`
+- `API_REFRESH_TOKEN`
+- `BOT_RUN_ON_SCHEDULE` (`true` or `false`)
+
+Optional runtime env values:
+
+- `TASTYTRADE_BOT_SOCKET` (override IPC socket path)
 
 3. Type-check the project:
 
