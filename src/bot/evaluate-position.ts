@@ -1,7 +1,7 @@
 import { getBidAskForSymbol } from "../core/market-data";
 import { CurrentPosition } from "../core/types";
 import {
-  evaluateTradingStrategy,
+  buildExecutionStrategy,
   ExecutionStrategy,
   PositionMetrics,
 } from "./evaluate-trading-strategy";
@@ -139,7 +139,7 @@ export async function evaluatePositionGroup(
     positions.map((position) => createPositionQuoteSnapshot(position)),
   );
   const metrics = buildAggregateMetrics(positionSnapshots, currentTime);
-  const strategy = evaluateTradingStrategy(metrics);
+  const strategy = buildExecutionStrategy(metrics);
   const currentReturn =
     metrics.weightedAverageFill > 0
       ? (metrics.currentBidPrice - metrics.weightedAverageFill) /

@@ -6,7 +6,7 @@ import {
   OptionCandidateSelectionOptions,
   resolveCandidateExpirations,
 } from "./option-contracts";
-import { evaluateTradingStrategy } from "./evaluate-trading-strategy";
+import { buildExecutionStrategy } from "./evaluate-trading-strategy";
 
 const DEFAULT_TOP_CANDIDATE_DTE_TOLERANCE = 7;
 const DEFAULT_OPTION_HEALTH_DTES = [7, 14, 30] as const;
@@ -22,7 +22,7 @@ export interface TopOptionCandidateForSymbolResult {
   "put-streamer-symbol"?: string;
   put?: string;
   requestedSide: "call" | "put";
-  strategy?: ReturnType<typeof evaluateTradingStrategy>;
+  strategy?: ReturnType<typeof buildExecutionStrategy>;
   streamerSymbol?: string;
   symbol?: string;
   usedDteFallback?: boolean;
@@ -49,7 +49,7 @@ export interface OptionHealthForSymbolResult {
 function getDefaultTopCandidateSelection() {
   const currentTime = new Date();
   // currentTime.setHours(11, 0, 0, 0); // Set to 11:00 AM
-  const strategy = evaluateTradingStrategy({
+  const strategy = buildExecutionStrategy({
     currentBidPrice: 1,
     currentAskPrice: 1,
     currentTime,

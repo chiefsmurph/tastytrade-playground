@@ -117,8 +117,14 @@ export async function executePositionEvaluations(
   );
   const allocationOrders: AllocationExecutionResult[] = [];
 
-  for (const evaluation of manageEvaluations) {
-    const result = await manageAllocationForGroup(accountNumber, evaluation, budget);
+  for (const [index, evaluation] of manageEvaluations.entries()) {
+    const groupsRemainingForAllocation = manageEvaluations.length - index;
+    const result = await manageAllocationForGroup(
+      accountNumber,
+      evaluation,
+      budget,
+      groupsRemainingForAllocation,
+    );
     allocationOrders.push(result);
     budget = getUpdatedBudgetAfterAllocation(budget, evaluation, result);
   }

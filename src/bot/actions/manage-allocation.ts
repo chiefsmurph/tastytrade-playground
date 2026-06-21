@@ -225,9 +225,12 @@ export async function manageAllocationForGroup(
   accountNumber: string,
   evaluation: PositionGroupEvaluation,
   budget: AllocationBudget,
+  groupsRemainingForAllocation = 1,
 ): Promise<AllocationExecutionResult> {
   const targetExposure = budget.totalCapital * evaluation.strategy.targetAccountExposure;
   const exposureHeadroom = targetExposure - budget.portfolioExposure;
+  const normalizedGroupsRemaining = Math.max(1, groupsRemainingForAllocation);
+  const perGroupExposureHeadroom = exposureHeadroom / normalizedGroupsRemaining;
 
   if (evaluation.strategy.targetAccountExposure <= 0) {
     return {
@@ -293,7 +296,7 @@ export async function manageAllocationForGroup(
   const bid = bidAsk?.bid ?? 0;
   const ask = bidAsk?.ask ?? bid;
   const availableCapital = Math.min(
-    exposureHeadroom,
+    Math.max(0, perGroupExposureHeadroom),
     budget.buyingPowerRemaining,
   );
   const routeOrders = allocateContractsByWeight(
