@@ -1,4 +1,4 @@
-# Tastytrade Bot (minimal)
+# Tastytrade Playground (minimal)
 
 This small Node.js scaffold fetches and displays positions and account balances from Tastytrade.
 
@@ -7,8 +7,8 @@ Setup
 1. Create project folder and install dependencies:
 
 ```bash
-mkdir -p ~/code/tastytrade-bot
-cd ~/code/tastytrade-bot
+mkdir -p ~/code/tastytrade-playground
+cd ~/code/tastytrade-playground
 npm install
 ```
 
@@ -47,7 +47,7 @@ Or run the bundled build instead:
 npm run start:build
 ```
 
-This starts a long-running Node process that listens on a local socket at `.tastytrade-bot.sock`.
+This starts a long-running Node process that listens on a local socket at `.tastytrade-playground.sock`.
 
 In a second terminal, call commands through IPC:
 

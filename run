@@ -5,7 +5,7 @@ import path from "node:path";
 const [, , command, ...args] = process.argv;
 const socketPath =
   process.env.TASTYTRADE_BOT_SOCKET ||
-  path.join(process.cwd(), ".tastytrade-bot.sock");
+  path.join(process.cwd(), ".tastytrade-playground.sock");
 
 function usage() {
   console.error("Usage: node run <namespace:function> [args...]");

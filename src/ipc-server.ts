@@ -3,6 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import { getBidAskForSymbol, getUnderlyingPrice } from "./core/market-data";
 import { fetchOptionChainWithVolume } from "./core/option-service";
+import tastytradeApi from "./core/tastytrade-client";
 import johnsTestRun from "./bot/johns-test-run";
 import {
   getOptionCandidatesForSymbol,
@@ -10,6 +11,7 @@ import {
 } from "./bot/get-option-candidates-for-symbol";
 import { getOptionCandidates } from "./bot/option-contracts";
 import everyFourMinutes from "./bot/every-four-minutes";
+import { cancelAllLiveOrders } from "./bot/execute-position-evaluations";
 import seedSymbol from "./bot/seed-symbol";
 import {
   getMarketOpenSchedulerStatus,
@@ -35,7 +37,18 @@ type IpcResponse = {
 
 const socketPath =
   process.env.TASTYTRADE_BOT_SOCKET ||
-  path.join(process.cwd(), ".tastytrade-bot.sock");
+  path.join(process.cwd(), ".tastytrade-playground.sock");
+
+async function getDefaultAccountNumber(): Promise<string> {
+  const accounts =
+    await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
+  const accountNumber = accounts[0]?.account?.["account-number"];
+  if (!accountNumber) {
+    throw new Error("No account number available");
+  }
+
+  return accountNumber;
+}
 
 const commandHandlers: Record<string, CommandHandler> = {
   "core:getBidAskForSymbol": async ([symbol, timeoutMs]) => {
@@ -47,6 +60,10 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
     return getUnderlyingPrice(symbol, parsedTimeout);
+  },
+  "core:cancelAllLiveOrders": async ([accountNumber]) => {
+    const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+    return cancelAllLiveOrders(resolvedAccountNumber);
   },
   "core:fetchOptionChainWithVolume": async ([symbol]) => {
     assertArg(symbol, "symbol");

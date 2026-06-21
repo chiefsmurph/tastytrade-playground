@@ -1,13 +1,21 @@
 import { getBidAskForSymbol } from "../core/market-data";
 import tastytradeApi from "../core/tastytrade-client";
+import { CurrentPosition } from "../core/types";
+import { getAccountBalanceNumber } from "../core/account-balance";
+import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./actions/order-utils";
+
+const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
 export interface SeedSymbolResult {
   accountNumber: string;
   askPrice?: number;
+  buyingPowerAvailable?: number;
   candidateSymbol?: string;
   dte?: number;
+  dryRunResponse?: unknown;
+  estimatedOrderCost?: number;
   maxDTE?: number;
   minDTE?: number;
   preferredDTE?: number;
@@ -18,6 +26,27 @@ export interface SeedSymbolResult {
   skippedReason?: string;
   strategy?: ReturnType<typeof getTopOptionCandidateForSymbol extends (...args: any[]) => Promise<infer T> ? NonNullable<T> extends { strategy?: infer S } ? () => S : never : never>;
   symbol: string;
+}
+
+function extractDryRunSkipReason(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "seed order dry run failed";
+  }
+
+  const maybeResponse = error as Error & {
+    response?: {
+      data?: {
+        error?: { message?: string };
+        message?: string;
+      };
+    };
+  };
+
+  const brokerMessage =
+    maybeResponse.response?.data?.error?.message ??
+    maybeResponse.response?.data?.message;
+
+  return brokerMessage || error.message || "seed order dry run failed";
 }
 
 async function getDefaultAccountNumber(): Promise<string> {
@@ -31,16 +60,47 @@ async function getDefaultAccountNumber(): Promise<string> {
   return accountNumber;
 }
 
+async function hasOpenUnderlyingPosition(
+  accountNumber: string,
+  symbol: string,
+): Promise<boolean> {
+  const currentPositions: CurrentPosition[] =
+    await tastytradeApi.balancesAndPositionsService.getPositionsList(
+      accountNumber,
+    );
+
+  return currentPositions.some((position) => {
+    const quantity = Number(position.quantity) || 0;
+    if (quantity === 0) {
+      return false;
+    }
+
+    return getUnderlyingSymbolForPosition(position).toUpperCase() === symbol.toUpperCase();
+  });
+}
+
 export async function seedSymbol(
   symbol: string,
   side: "call" | "put" = "call",
   accountNumber?: string,
 ): Promise<SeedSymbolResult> {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+  const normalizedSymbol = symbol.toUpperCase();
+
+  if (await hasOpenUnderlyingPosition(resolvedAccountNumber, normalizedSymbol)) {
+    return {
+      accountNumber: resolvedAccountNumber,
+      placedOrder: false,
+      side,
+      skippedReason: "underlying already has an open position",
+      symbol: normalizedSymbol,
+    };
+  }
+
   const candidate = await getTopOptionCandidateForSymbol(symbol, side);
   const strategy = candidate?.strategy;
 
-  console.log(JSON.stringify({ symbol, side, resolvedAccountNumber, strategy }, null, 2));
+  console.log(JSON.stringify({ symbol: normalizedSymbol, side, resolvedAccountNumber, strategy }, null, 2));
   if (
     !strategy ||
     strategy.action !== "MANAGE_ALLOCATION" ||
@@ -55,7 +115,7 @@ export async function seedSymbol(
       side,
       skippedReason: "time-of-day strategy is not allowing new accumulation",
       strategy,
-      symbol,
+      symbol: normalizedSymbol,
     };
   }
 
@@ -85,7 +145,7 @@ export async function seedSymbol(
       side,
       skippedReason: "no option candidate found",
       strategy,
-      symbol,
+      symbol: normalizedSymbol,
     };
   }
 
@@ -101,7 +161,7 @@ export async function seedSymbol(
       side,
       skippedReason: "candidate quote symbol unavailable",
       strategy,
-      symbol,
+      symbol: normalizedSymbol,
     };
   }
 
@@ -121,15 +181,18 @@ export async function seedSymbol(
       side,
       skippedReason: "candidate ask quote unavailable",
       strategy,
-      symbol,
+      symbol: normalizedSymbol,
     };
   }
 
+  const limitPrice = roundOrderPrice(askPrice);
+  const numericLimitPrice = Number(limitPrice);
+
   const order: OrderPayload = {
-    source: "tastytrade-bot",
+    source: "tastytrade-playground",
     "time-in-force": "Day",
     "order-type": "Limit",
-    price: roundOrderPrice(askPrice),
+    price: limitPrice,
     "price-effect": "Debit",
     legs: [
       {
@@ -141,6 +204,67 @@ export async function seedSymbol(
     ],
   };
 
+  const accountBalance =
+    await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
+      resolvedAccountNumber,
+    );
+  const buyingPowerAvailable = getAccountBalanceNumber(
+    accountBalance,
+    "derivative_buying_power",
+    "derivative-buying-power",
+  );
+  const estimatedOrderCost = numericLimitPrice * DEFAULT_CONTRACT_MULTIPLIER;
+
+  if (estimatedOrderCost > buyingPowerAvailable) {
+    return {
+      accountNumber: resolvedAccountNumber,
+      askPrice,
+      buyingPowerAvailable,
+      candidateSymbol,
+      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      estimatedOrderCost,
+      maxDTE,
+      minDTE,
+      placedOrder: false,
+      preferredDTE,
+      quoteSymbol,
+      side,
+      skippedReason: "insufficient derivative buying power for seed order",
+      strategy,
+      symbol: normalizedSymbol,
+    };
+  }
+
+  let dryRunResponse: unknown;
+  try {
+    dryRunResponse = await tastytradeApi.orderService.postOrderDryRun(
+      resolvedAccountNumber,
+      order,
+    );
+  } catch (error) {
+    return {
+      accountNumber: resolvedAccountNumber,
+      askPrice,
+      buyingPowerAvailable,
+      candidateSymbol,
+      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      dryRunResponse:
+        error instanceof Error
+          ? ((error as Error & { response?: { data?: unknown } }).response?.data ?? error.message)
+          : error,
+      estimatedOrderCost,
+      maxDTE,
+      minDTE,
+      placedOrder: false,
+      preferredDTE,
+      quoteSymbol,
+      side,
+      skippedReason: extractDryRunSkipReason(error),
+      strategy,
+      symbol: normalizedSymbol,
+    };
+  }
+
   const orderResponse = await tastytradeApi.orderService.createOrder(
     resolvedAccountNumber,
     order,
@@ -149,8 +273,11 @@ export async function seedSymbol(
   return {
     accountNumber: resolvedAccountNumber,
     askPrice,
+    buyingPowerAvailable,
     candidateSymbol,
     dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+    dryRunResponse,
+    estimatedOrderCost,
     maxDTE,
     minDTE,
     preferredDTE,
@@ -159,7 +286,7 @@ export async function seedSymbol(
     placedOrder: true,
     side,
     strategy,
-    symbol,
+    symbol: normalizedSymbol,
   };
 }
 

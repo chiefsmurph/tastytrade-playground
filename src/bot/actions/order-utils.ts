@@ -105,7 +105,7 @@ export function buildClosingOrderPayload(
   const action = getClosingAction(snapshot.position);
 
   return {
-    source: "tastytrade-bot",
+    source: "tastytrade-playground",
     "time-in-force": "Day",
     "order-type": "Limit",
     price: roundOrderPrice(price),
