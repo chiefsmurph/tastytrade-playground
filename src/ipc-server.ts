@@ -9,6 +9,7 @@ import {
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
 import { getOptionCandidates } from "./bot/option-contracts";
+import everyFourMinutes from "./bot/every-four-minutes";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 
@@ -58,6 +59,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     return getTopOptionCandidateForSymbol(symbol);
   },
   "bot:johnsTestRun": johnsTestRun,
+  "bot:everyFourMinutes": everyFourMinutes,
 };
 
 export function startIpcServer() {
