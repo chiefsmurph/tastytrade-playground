@@ -56,6 +56,7 @@ export async function getOptionCandidates(
     optionChain,
     underlyingPrice?.underlyingPrice || 0,
     selectionOptions,
+    side,
   ).map((candidate) => ({
     ...candidate,
     meetsVolumeRequirement: getOptionCandidateVolume(candidate, side) >= MIN_VOLUME,
@@ -95,6 +96,7 @@ export function chooseOptionCandidates(
   optionChain: TastytradeOptionChainWithVolumes,
   underlyingPrice: number,
   selectionOptions: OptionCandidateSelectionOptions = {},
+  side: "call" | "put" = "call",
 ): OptionCandidate[] {
   const { expirations, usedDteFallback } = resolveCandidateExpirations(
     optionChain,
@@ -118,8 +120,8 @@ export function chooseOptionCandidates(
         expirationType: exp["expiration-type"],
         dte: num(exp["days-to-expiration"]),
         strike: num(strike["strike-price"]),
-        symbol: strike.call,
-        streamerSymbol: strike["call-streamer-symbol"],
+        symbol: side === "call" ? strike.call : strike.put,
+        streamerSymbol: side === "call" ? strike["call-streamer-symbol"] : strike["put-streamer-symbol"],
         ...strike,
       }))
       .sort((a, b) => num(a["strike-price"]) - num(b["strike-price"]));
