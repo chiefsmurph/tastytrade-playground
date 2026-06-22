@@ -59,18 +59,33 @@ function getPositionQuantityWeight(position: CurrentPosition): number {
 async function createPositionQuoteSnapshot(
   position: CurrentPosition,
 ): Promise<PositionQuoteSnapshot> {
+  const markPrice = Number(position["mark-price"]);
+  const closePrice = Number(position["close-price"]);
+  const averageOpenPrice = Number(position["average-open-price"]);
+  const averageDailyClosePrice = Number(
+    position["average-daily-market-close-price"],
+  );
+  const fallbackMarkPrice = Number.isFinite(markPrice) ? markPrice : undefined;
+  const fallbackClosePrice = Number.isFinite(closePrice) ? closePrice : undefined;
+  const fallbackAverageOpen = Number.isFinite(averageOpenPrice)
+    ? averageOpenPrice
+    : undefined;
+  const fallbackAverageDailyClose = Number.isFinite(averageDailyClosePrice)
+    ? averageDailyClosePrice
+    : undefined;
+
   const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
     position.symbol,
     3000,
   );
   const currentBidPrice =
-    bidAsk?.bid ?? ((position["mark-price"] as number | undefined) ?? (position["close-price"] as number | undefined) ?? 0);
+    bidAsk?.bid ?? (fallbackMarkPrice ?? fallbackClosePrice ?? 0);
   const currentAskPrice =
     bidAsk?.ask ??
-    ((position["mark-price"] as number | undefined) ?? (position["close-price"] as number | undefined) ?? currentBidPrice);
+    (fallbackMarkPrice ?? fallbackClosePrice ?? currentBidPrice);
   const weightedAverageFill =
-    (position["average-open-price"] as number | undefined) ??
-    (position["average-daily-market-close-price"] as number | undefined) ??
+    fallbackAverageOpen ??
+    fallbackAverageDailyClose ??
     currentBidPrice;
 
   return {

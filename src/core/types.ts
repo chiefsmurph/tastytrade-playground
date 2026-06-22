@@ -171,9 +171,7 @@ export interface TastytradeOptionChainWithVolumes extends Omit<TastytradeOptionC
 export type TastytradeOptionChainsWithVolumes = TastytradeOptionChainWithVolumes[];
 
 export interface TastytradeCustomerAccountResource {
-  account: {
-    "account-number": string;
-  };
+  account: TastytradeAccountBalance;
 }
 
 export type TastytradeOrderAction =

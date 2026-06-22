@@ -70,38 +70,6 @@ export type TypedTastytradeClient = Omit<
 
 const tastytradeApi = rawTastytradeApi as unknown as TypedTastytradeClient;
 
-function coerceNumericString(value: unknown): unknown {
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  const trimmed = value.trim();
-  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
-    return value;
-  }
-
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : value;
-}
-
-function normalizeTopLevelApiRecord(
-  record: Record<string, unknown>,
-): Record<string, unknown> {
-  const normalized: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(record)) {
-    const normalizedValue = coerceNumericString(value);
-    normalized[key] = normalizedValue;
-
-    const camelCaseKey = key
-      .replace(/[-_]+([a-zA-Z0-9])/g, (_, c: string) => c.toUpperCase())
-      .replace(/^([A-Z])/, (c) => c.toLowerCase());
-    normalized[camelCaseKey] = normalizedValue;
-  }
-
-  return normalized;
-}
-
 const rawGetPositionsList =
   tastytradeApi.balancesAndPositionsService.getPositionsList.bind(
     tastytradeApi.balancesAndPositionsService,
@@ -118,11 +86,7 @@ tastytradeApi.balancesAndPositionsService.getPositionsList = async (
   const positions =
     await rawGetPositionsList(accountNumber) as unknown as TastytradeCurrentPosition[];
 
-  return positions.map((position) =>
-    normalizeTopLevelApiRecord(
-      position as unknown as Record<string, unknown>,
-    ) as unknown as CurrentPosition,
-  );
+  return positions as unknown as CurrentPosition[];
 };
 
 tastytradeApi.balancesAndPositionsService.getAccountBalanceValues = async (
@@ -131,9 +95,7 @@ tastytradeApi.balancesAndPositionsService.getAccountBalanceValues = async (
   const accountBalance =
     await rawGetAccountBalanceValues(accountNumber) as unknown as TastytradeAccountBalance;
 
-  return normalizeTopLevelApiRecord(
-    accountBalance as unknown as Record<string, unknown>,
-  ) as unknown as TastytradeAccountBalance;
+  return accountBalance;
 };
 
 tastytradeApi.johnsService = {
