@@ -1,5 +1,3 @@
-import { time } from "node:console";
-
 export type ProgrammaticAction = "MANAGE_ALLOCATION" | "CLOSE_POSITION";
 
 // Unified return structure containing target state goals for the execution loop
@@ -128,11 +126,11 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
     ]),
   );
   const targetAccountExposure = blendBySchedule(timeInMinutes, [
-    { minute: SIX_THIRTY_AM, value: 0.50 },
-    { minute: NINE_AM, value: 0.50 },
-    { minute: TEN_AM, value: 0.65 },
-    { minute: ELEVEN_AM, value: 0.75 },
-    { minute: ELEVEN_THIRTY_AM, value: 1.00 },
+    { minute: SIX_THIRTY_AM, value: 0.40 },
+    { minute: NINE_AM, value: 0.45 },
+    { minute: TEN_AM, value: 0.55 },
+    { minute: ELEVEN_AM, value: 0.65 },
+    { minute: ELEVEN_THIRTY_AM, value: 0.75 },
     { minute: TWELVE_THIRTY_PM, value: 1.00 },
   ]);
   const bidWeight = blendBySchedule(timeInMinutes, [
@@ -148,16 +146,16 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
     { minute: NINE_AM, value: 0.30 },
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.30 },
-    { minute: ELEVEN_THIRTY_AM, value: 0.00 },
-    { minute: TWELVE_THIRTY_PM, value: 0.00 },
+    { minute: ELEVEN_THIRTY_AM, value: 0.25 },
+    { minute: TWELVE_THIRTY_PM, value: 0.15 },
   ]);
   const askWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.10 },
     { minute: NINE_AM, value: 0.20 },
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.50 },
-    { minute: ELEVEN_THIRTY_AM, value: 1.00 },
-    { minute: TWELVE_THIRTY_PM, value: 1.00 },
+    { minute: ELEVEN_THIRTY_AM, value: 0.75 },
+    { minute: TWELVE_THIRTY_PM, value: 0.85 },
   ]);
 
   if (timeInMinutes >= TWELVE_THIRTY_PM) {

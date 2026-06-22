@@ -37,7 +37,7 @@ test("getTimeOfDayExecutionTargets boundary at 06:30 is opening target set", () 
   const targets = getTimeOfDayExecutionTargetsForPstTime("06:30");
 
   assert.equal(targets.targetDTE, 30);
-  assert.equal(targets.targetAccountExposure, 0.5);
+  assert.equal(targets.targetAccountExposure, 0.4);
   assert.equal(targets.bidWeight, 0.7);
   assert.equal(targets.midWeight, 0.2);
   assert.equal(targets.askWeight, 0.1);
