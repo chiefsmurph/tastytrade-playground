@@ -1,18 +1,28 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import {
+  disableLiveOrdersForProcess,
+  formatStartupSafetyBanner,
+  getBotConfig,
+  getRuntimeSafetyState,
+  reloadBotConfig,
+} from "./core/bot-config";
+import { getTastytradeClientConfig } from "./core/env";
+import { safeJson } from "./core/logging";
+import { getBidAskForSymbol, getUnderlyingPrice } from "./core/market-data";
+import { fetchOptionChainWithVolume } from "./core/option-service";
 import tastytradeApi from "./core/tastytrade-client";
-import johnsTestRun from "./bot/johns-test-run";
 import {
   getOptionHealthForSymbol,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
-import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "./bot/evaluate-trading-strategy";
+import { getTimeOfDayExecutionTargetsForPacificTime as getTargetsForPacificTime } from "./bot/evaluate-trading-strategy";
 import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
 import runBotCycle, { getRunCyclePreview } from "./bot/run-cycle";
+import { cancelAllLiveOrders } from "./bot/execute-position-evaluations";
 import seedSymbol from "./bot/seed-symbol";
-import purchaseSymbol from "./bot/purchase-symbol";
 import {
   getMarketOpenSchedulerStatus,
   startMarketOpenScheduler,
@@ -52,23 +62,37 @@ export async function getDefaultAccountNumber(): Promise<string> {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+  "config:show": async () => ({
+    config: getBotConfig(),
+    runtimeSafety: getRuntimeSafetyState(),
+    safetyBanner: formatStartupSafetyBanner(),
+  }),
+  "config:reload": async () => {
+    const config = reloadBotConfig();
+    tastytradeApi.updateConfig(getTastytradeClientConfig());
+    return {
+      config,
+      runtimeSafety: getRuntimeSafetyState(config),
+      safetyBanner: formatStartupSafetyBanner(config),
+    };
+  },
   "core:getBidAskForSymbol": async ([symbol, timeoutMs]) => {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
-    return tastytradeApi.johnsService.getBidAskForSymbol(symbol, parsedTimeout);
+    return getBidAskForSymbol(symbol, parsedTimeout);
   },
   "core:getUnderlyingPrice": async ([symbol, timeoutMs]) => {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
-    return tastytradeApi.johnsService.getUnderlyingPrice(symbol, parsedTimeout);
+    return getUnderlyingPrice(symbol, parsedTimeout);
   },
   "core:cancelAllLiveOrders": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
-    return tastytradeApi.johnsService.cancelAllLiveOrders(resolvedAccountNumber);
+    return cancelAllLiveOrders(resolvedAccountNumber);
   },
   "core:fetchOptionChainWithVolume": async ([symbol]) => {
     assertArg(symbol, "symbol");
-    return tastytradeApi.johnsService.fetchOptionChainWithVolume(symbol);
+    return fetchOptionChainWithVolume(symbol);
   },
   "bot:getOptionCandidates": async ([symbol, side]) => {
     assertArg(symbol, "symbol");
@@ -86,7 +110,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     return getOptionHealthForSymbol(symbol, normalizedSide);
   },
   "bot:getTimeOfDayExecutionTargets": async ([timeOfDay]) => {
-    return getTargetsForPstTime(timeOfDay);
+    return getTargetsForPacificTime(timeOfDay);
   },
   "bot:getCurrentAllocationBudget": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
@@ -97,18 +121,26 @@ const commandHandlers: Record<string, CommandHandler> = {
     const normalizedSide = side === "put" ? "put" : "call";
     return seedSymbol(symbol, normalizedSide, accountNumber);
   },
-  "bot:purchaseSymbol": async ([symbol, dollars, side, accountNumber]) => {
-    assertArg(symbol, "symbol");
-    assertArg(dollars, "dollars");
-    const requestedBudget = Number(dollars);
-    if (!Number.isFinite(requestedBudget) || requestedBudget <= 0) {
-      throw new Error("dollars must be a number greater than 0");
+  "bot:panic": async ([accountNumber]) => {
+    const runtimeSafety = disableLiveOrdersForProcess("panic command invoked");
+    const schedulerStatus = stopMarketOpenScheduler();
+    let cancelledOrders: unknown[] = [];
+    let cancelError: string | undefined;
+
+    try {
+      const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+      cancelledOrders = await cancelAllLiveOrders(resolvedAccountNumber);
+    } catch (error) {
+      cancelError = formatIpcError(error);
     }
 
-    const normalizedSide = side === "put" ? "put" : "call";
-    return purchaseSymbol(symbol, requestedBudget, normalizedSide, accountNumber);
+    return {
+      cancelError,
+      cancelledOrders,
+      runtimeSafety,
+      schedulerStatus,
+    };
   },
-  "bot:johnsTestRun": johnsTestRun,
   "bot:runCycle": async ([accountNumber]) => runBotCycle(accountNumber),
   "bot:getRunCyclePreview": async ([accountNumber]) =>
     getRunCyclePreview(accountNumber),
@@ -123,8 +155,8 @@ const commandHandlers: Record<string, CommandHandler> = {
   "bot:stopMarketOpenScheduler": async () => stopMarketOpenScheduler(),
 };
 
-export function startIpcServer() {
-  cleanupStaleSocket();
+export async function startIpcServer() {
+  await cleanupStaleSocket();
 
   const server = net.createServer((socket) => {
     let buffer = "";
@@ -219,6 +251,7 @@ function formatIpcError(error: unknown): string {
   }
 
   const maybeAxiosError = error as {
+    code?: string;
     message?: string;
     response?: {
       data?: unknown;
@@ -229,8 +262,12 @@ function formatIpcError(error: unknown): string {
 
   if (responseData != null) {
     try {
-      return JSON.stringify(responseData);
+      return safeJson(responseData);
     } catch {}
+  }
+
+  if (maybeAxiosError.code) {
+    return `${maybeAxiosError.code}: ${maybeAxiosError.message ?? String(error)}`;
   }
 
   return maybeAxiosError.message ?? String(error);
@@ -242,7 +279,7 @@ function logRequest(
   raw?: string,
 ) {
   console.log(
-    JSON.stringify({
+    safeJson({
       scope: "ipc-request",
       status,
       id: request.id,
@@ -250,20 +287,20 @@ function logRequest(
       args: request.args,
       raw: raw ?? undefined,
       timestamp: new Date().toISOString(),
-    }, null, 2),
+    }),
   );
 }
 
 function logResponse(response: IpcResponse) {
   console.log(
-    JSON.stringify({
+    safeJson({
       scope: "ipc-response",
       id: response.id,
       ok: response.ok,
       error: response.error ?? null,
       result: response.result ?? null,
       timestamp: new Date().toISOString(),
-    }, null, 2),
+    }),
   );
 }
 
@@ -273,15 +310,41 @@ function assertArg(value: string | undefined, name: string): asserts value is st
   }
 }
 
-function cleanupStaleSocket() {
+async function cleanupStaleSocket() {
   try {
     if (fs.existsSync(socketPath)) {
+      if (await probeExistingSocket(socketPath)) {
+        throw new Error(
+          `IPC socket ${socketPath} is already owned by a running process`,
+        );
+      }
       fs.unlinkSync(socketPath);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Could not clean up IPC socket ${socketPath}: ${message}`);
   }
+}
+
+function probeExistingSocket(pathToSocket: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection(pathToSocket);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, 300);
+
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve(true);
+    });
+
+    socket.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
 }
 
 function removeSocketFile() {

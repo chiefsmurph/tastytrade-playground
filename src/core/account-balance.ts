@@ -1,25 +1,39 @@
-import { TastytradeAccountBalance } from "./types";
+import { AccountBalance } from "./types";
+import { normalizeAccountBalance, readBrokerField } from "./normalize";
+
+function camelCaseKey(key: string): string {
+  return key.replace(/_+([a-zA-Z0-9])/g, (_, part: string) =>
+    part.toUpperCase(),
+  );
+}
 
 export function getAccountBalanceNumber(
-  accountBalance: TastytradeAccountBalance,
-  key: keyof TastytradeAccountBalance,
+  accountBalance: AccountBalance,
+  snakeCaseKey: keyof AccountBalance,
+  kebabCaseKey: string,
 ): number {
-  const rawAccountBalance = accountBalance as unknown as Record<string, unknown>;
-  const keyString = String(key);
-  const alternateKey = keyString.includes("-")
-    ? keyString
-    : keyString
-        .replace(/_/g, "-")
-        .replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-  const rawValue = rawAccountBalance[keyString] ?? rawAccountBalance[alternateKey];
+  const rawValue = readBrokerField(accountBalance, [
+    snakeCaseKey as string,
+    kebabCaseKey,
+    camelCaseKey(snakeCaseKey as string),
+  ]);
   const parsed = Number(rawValue);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function getSignedPendingCash(accountBalance: TastytradeAccountBalance): number {
-  const pendingCash = getAccountBalanceNumber(accountBalance, "pending-cash");
-  const rawAccountBalance = accountBalance as unknown as Record<string, unknown>;
-  const effect = String(rawAccountBalance["pending-cash-effect"] ?? "").toLowerCase();
+export function getSignedPendingCash(accountBalance: AccountBalance): number {
+  const pendingCash = getAccountBalanceNumber(
+    accountBalance,
+    "pending_cash",
+    "pending-cash",
+  );
+  const effect = String(
+    readBrokerField(accountBalance, [
+      "pending_cash_effect",
+      "pending-cash-effect",
+      "pendingCashEffect",
+    ]) ?? "",
+  ).toLowerCase();
 
   if (effect === "debit") {
     return -pendingCash;
@@ -28,9 +42,23 @@ export function getSignedPendingCash(accountBalance: TastytradeAccountBalance): 
   return pendingCash;
 }
 
-export function getEffectiveTotalCapital(accountBalance: TastytradeAccountBalance): number {
+export function getEffectiveTotalCapital(accountBalance: AccountBalance): number {
   return (
-    getAccountBalanceNumber(accountBalance, "net-liquidating-value") +
-    getSignedPendingCash(accountBalance)
+    getAccountBalanceNumber(
+      accountBalance,
+      "net_liquidating_value",
+      "net-liquidating-value",
+    ) + getSignedPendingCash(accountBalance)
+  );
+}
+
+export async function fetchNormalizedAccountBalance(
+  accountNumber: string,
+): Promise<AccountBalance> {
+  const { default: tastytradeApi } = await import("./tastytrade-client");
+  return normalizeAccountBalance(
+    await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
+      accountNumber,
+    ),
   );
 }

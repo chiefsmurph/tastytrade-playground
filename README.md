@@ -21,7 +21,6 @@ cp .env.example .env
 
 Required `.env` values (from `.env.example`):
 
-- `BASE_URL` (default: `https://api.tastyworks.com`)
 - `API_CLIENT_SECRET`
 - `API_REFRESH_TOKEN`
 - `BOT_RUN_ON_SCHEDULE` (`true` or `false`)
@@ -29,8 +28,12 @@ Required `.env` values (from `.env.example`):
 Optional runtime env values:
 
 - `TASTYTRADE_BOT_SOCKET` (override IPC socket path)
+- `TASTYTRADE_BOT_CONFIG` (override config path; default: `config/trading-bot.config.json`)
+- `BOT_ENABLE_LIVE_ORDERS` (`true` is required in addition to JSON config before live submits)
 - `BOT_RUN_INTERVAL_MS` (scheduler run interval in milliseconds while market is open)
 - `BOT_RUN_INTERVAL_MINUTES` (scheduler run interval in minutes; used when `BOT_RUN_INTERVAL_MS` is unset)
+
+Trading config is JSON. Copy `config/trading-bot.config.example.json` to `config/trading-bot.config.json` when you want to override defaults. If the config file is missing, the bot uses the same conservative defaults as the example: sandbox environment and live orders disabled.
 
 3. Type-check the project:
 
@@ -44,7 +47,7 @@ npm run typecheck
 npm run build
 ```
 
-This project normally runs directly from TypeScript via `tsx`. `typecheck` validates types only, while `build` creates a bundled server entrypoint at `build/index.js`.
+This project normally runs directly from TypeScript via `tsx`. `typecheck` validates types only, while `build` creates a bundled server entrypoint at `build/index.js`. The build keeps dependencies external, so a deployed `build/` directory still needs `npm ci` or an equivalent install on the target machine.
 
 Run With IPC
 
@@ -65,6 +68,14 @@ This starts a long-running Node process that listens on a local socket at `.tast
 In a second terminal, call commands through IPC:
 
 ```bash
+node run config:show
+```
+
+```bash
+node run config:reload
+```
+
+```bash
 node run core:getBidAskForSymbol AAPL
 ```
 
@@ -73,7 +84,7 @@ node run core:getUnderlyingPrice AAPL
 ```
 
 ```bash
-node run core:fetchOptionChainsWithVolume RUM
+node run core:fetchOptionChainWithVolume RUM
 ```
 
 ```bash
@@ -113,14 +124,17 @@ node run bot:runCycle
 ```
 
 ```bash
-node run bot:purchaseSymbol RUM 1000
+node run bot:panic
 ```
 
 Supported IPC commands
 
+- `config:show`
+- `config:reload`
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
 - `core:getUnderlyingPrice <symbol> [timeoutMs]`
-- `core:fetchOptionChainsWithVolume <symbol>`
+- `core:cancelAllLiveOrders [accountNumber]`
+- `core:fetchOptionChainWithVolume <symbol>`
 - `bot:getOptionCandidates <symbol> [call|put]`
 - `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
 - `bot:getOptionHealthForSymbol <symbol> [call|put]`
@@ -129,7 +143,7 @@ Supported IPC commands
 - `bot:getRecentRunHistory [limit]`
 - `bot:getRunCyclePreview [accountNumber]`
 - `bot:runCycle [accountNumber]`
-- `bot:purchaseSymbol <symbol> <dollars> [call|put] [accountNumber]`
+- `bot:panic [accountNumber]`
 - `bot:getLastRunCycle`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`
@@ -185,6 +199,8 @@ Notes
 
 - If the client cannot connect, start or restart the IPC server with `npm run start:tsx`.
 - The Tastytrade calls depend on the values in `.env`.
+- Live order submission is blocked unless `liveOrders.enabled` is `true` in JSON config and `BOT_ENABLE_LIVE_ORDERS=true` is present in the environment. Order paths dry-run first by default.
+- Config details and the go-live checklist are in `docs/configuration_codex.md` and `docs/john_handoff_codex.md`.
 - The socket path can be overridden with `TASTYTRADE_BOT_SOCKET`.
 - Open-market scheduler run interval can be customized with `BOT_RUN_INTERVAL_MS` or `BOT_RUN_INTERVAL_MINUTES`.
 - Run history path can be overridden with `TASTYTRADE_BOT_RUN_HISTORY_PATH` (default: `data/runs.ndjson`).

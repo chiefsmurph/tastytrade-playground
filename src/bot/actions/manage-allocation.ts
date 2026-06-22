@@ -1,8 +1,10 @@
 import {
+  fetchNormalizedAccountBalance,
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
-} from "~/core/account-balance";
-import tastytradeApi from "~/core/tastytrade-client";
+} from "../../core/account-balance";
+import { getBotConfig } from "../../core/bot-config";
+import { getBidAskForSymbol } from "../../core/market-data";
 import { getPositionEvaluations } from "../get-position-evaluations";
 import { PositionGroupEvaluation } from "../evaluate-position";
 import { getTopOptionCandidateForSymbol } from "../get-option-candidates-for-symbol";
@@ -14,19 +16,20 @@ import {
   roundOrderPrice,
 } from "./order-utils";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
-import type { TastytradePlacedOrderResponse } from "~/core/types";
+import { placeOrderSafely, SafeOrderResult } from "./place-order";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
-export type AllocationRoute = "bid" | "mid" | "ask";
+type AllocationRoute = "bid" | "mid" | "ask";
 
 export interface AllocationRouteResult {
   estimatedOrderValue: number;
   limitPrice: number;
-  orderResponse?: TastytradePlacedOrderResponse;
+  orderResponse?: unknown;
   placedOrder: boolean;
   quantity: number;
   route: AllocationRoute;
+  safeOrderResult?: SafeOrderResult;
   skippedReason?: string;
   weight: number;
 }
@@ -34,12 +37,13 @@ export interface AllocationRouteResult {
 export interface AllocationExecutionResult {
   accountNumber: string;
   action: "MANAGE_ALLOCATION";
+  candidateQuoteSymbol?: string;
   candidateSymbol?: string;
   candidateDTE?: number;
   estimatedOrderValue?: number;
   maxDTE?: number;
   minDTE?: number;
-  orderResponses?: TastytradePlacedOrderResponse[];
+  orderResponses?: unknown[];
   placedOrder: boolean;
   preferredDTE?: number;
   quantity?: number;
@@ -61,10 +65,12 @@ interface ManageAllocationOptions {
 
 function getCandidateSide(evaluation: PositionGroupEvaluation): "call" | "put" {
   const inferredSides = evaluation.positions
-    .map((position) => inferOptionSide(position.symbol))
+    .map((position) => inferOptionSide(position.orderSymbol ?? position.symbol))
     .filter((side): side is "call" | "put" => side != null);
 
-  return inferredSides[0] ?? "call";
+  const enabledSides = getBotConfig().strategy.enabledSides;
+  const inferred = inferredSides.find((side) => enabledSides.includes(side));
+  return inferred ?? enabledSides[0] ?? "call";
 }
 
 function getMidpointPrice(bid: number, ask: number): number {
@@ -75,7 +81,7 @@ function getMidpointPrice(bid: number, ask: number): number {
   return ask || bid;
 }
 
-export function buildRouteOrders(
+function buildRouteOrders(
   bid: number,
   ask: number,
   targets: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight">,
@@ -110,7 +116,7 @@ export function buildRouteOrders(
   ].filter((routeOrder) => routeOrder.weight > 0 && routeOrder.limitPrice > 0);
 }
 
-export function allocateContractsByWeight(
+function allocateContractsByWeight(
   routeOrders: AllocationRouteResult[],
   availableCapital: number,
 ): AllocationRouteResult[] {
@@ -180,9 +186,9 @@ export function allocateContractsByWeight(
   return routeOrders;
 }
 
-export async function placeRouteOrders(
+async function placeRouteOrders(
   accountNumber: string,
-  candidateSymbol: string,
+  candidateOrderSymbol: string,
   routeOrders: AllocationRouteResult[],
 ): Promise<AllocationRouteResult[]> {
   const placedOrders: AllocationRouteResult[] = [];
@@ -205,22 +211,21 @@ export async function placeRouteOrders(
       legs: [
         {
           action: "Buy to Open",
-          symbol: candidateSymbol,
+          symbol: candidateOrderSymbol,
           quantity: routeOrder.quantity,
           "instrument-type": normalizeInstrumentType("Equity Option"),
         },
       ],
     };
 
-    const orderResponse = await tastytradeApi.orderService.createOrder(
-      accountNumber,
-      order,
-    );
+    const safeOrderResult = await placeOrderSafely(accountNumber, order);
 
     placedOrders.push({
       ...routeOrder,
-      orderResponse,
-      placedOrder: true,
+      orderResponse: safeOrderResult.orderResponse,
+      placedOrder: safeOrderResult.submitted,
+      safeOrderResult,
+      skippedReason: safeOrderResult.skippedReason,
     });
   }
 
@@ -235,6 +240,7 @@ export async function manageAllocationForGroup(
   options: ManageAllocationOptions = {},
 ): Promise<AllocationExecutionResult> {
   const targets = evaluation.executionTargets;
+  const botConfig = getBotConfig();
 
   if (!targets) {
     return {
@@ -243,6 +249,20 @@ export async function manageAllocationForGroup(
       placedOrder: false,
       routeOrders: [],
       skippedReason: "execution targets missing",
+      underlyingSymbol: evaluation.underlyingSymbol,
+    };
+  }
+
+  if (
+    !botConfig.strategy.allowAddingToLosingPositions &&
+    evaluation.currentReturn <= botConfig.strategy.maxLossForNewAllocationPct
+  ) {
+    return {
+      accountNumber,
+      action: "MANAGE_ALLOCATION",
+      placedOrder: false,
+      routeOrders: [],
+      skippedReason: `not adding to losing position at ${(evaluation.currentReturn * 100).toFixed(2)}%`,
       underlyingSymbol: evaluation.underlyingSymbol,
     };
   }
@@ -292,11 +312,14 @@ export async function manageAllocationForGroup(
       maxDTE: candidate?.maxDTE,
       preferredDTE: candidate?.preferredDTE,
       usedDteFallback: candidate?.usedDteFallback ?? false,
-      symbol: candidate?.symbol ?? null,
+      orderSymbol: candidate?.orderSymbol ?? candidate?.symbol ?? null,
+      quoteSymbol: candidate?.quoteSymbol ?? null,
+      dayVolume: candidate?.dayVolume ?? null,
+      openInterest: candidate?.openInterest ?? null,
     }),
   );
 
-  if (!candidate?.symbol) {
+  if (!candidate?.orderSymbol && !candidate?.symbol) {
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
@@ -312,10 +335,45 @@ export async function manageAllocationForGroup(
     };
   }
 
-  const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
-    candidate.symbol,
-    3000,
-  );
+  if (candidate.meetsLiquidityRequirement === false) {
+    return {
+      accountNumber,
+      action: "MANAGE_ALLOCATION",
+      candidateDTE: candidate.dte,
+      candidateQuoteSymbol: candidate.quoteSymbol,
+      candidateSymbol: candidate.orderSymbol ?? candidate.symbol,
+      maxDTE: candidate.maxDTE,
+      minDTE: candidate.minDTE,
+      placedOrder: false,
+      preferredDTE: candidate.preferredDTE,
+      routeOrders: [],
+      skippedReason: "candidate failed liquidity gate",
+      underlyingSymbol: evaluation.underlyingSymbol,
+      usedDteFallback: candidate.usedDteFallback,
+    };
+  }
+
+  const candidateOrderSymbol = candidate.orderSymbol ?? candidate.symbol;
+  const candidateQuoteSymbol =
+    candidate.quoteSymbol ?? candidate.streamerSymbol ?? candidateOrderSymbol;
+
+  if (!candidateOrderSymbol || !candidateQuoteSymbol) {
+    return {
+      accountNumber,
+      action: "MANAGE_ALLOCATION",
+      candidateDTE: candidate.dte,
+      maxDTE: candidate.maxDTE,
+      minDTE: candidate.minDTE,
+      placedOrder: false,
+      preferredDTE: candidate.preferredDTE,
+      routeOrders: [],
+      skippedReason: "candidate order or quote symbol unavailable",
+      underlyingSymbol: evaluation.underlyingSymbol,
+      usedDteFallback: candidate.usedDteFallback,
+    };
+  }
+
+  const bidAsk = await getBidAskForSymbol(candidateQuoteSymbol, 3000);
   const bid = bidAsk?.bid ?? 0;
   const ask = bidAsk?.ask ?? bid;
   const availableCapital = Math.min(
@@ -332,6 +390,7 @@ export async function manageAllocationForGroup(
       accountNumber,
       action: "MANAGE_ALLOCATION",
       candidateDTE: candidate.dte,
+      candidateQuoteSymbol,
       maxDTE: candidate.maxDTE,
       minDTE: candidate.minDTE,
       placedOrder: false,
@@ -352,7 +411,8 @@ export async function manageAllocationForGroup(
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
-      candidateSymbol: candidate.symbol,
+      candidateQuoteSymbol,
+      candidateSymbol: candidateOrderSymbol,
       candidateDTE: candidate.dte,
       maxDTE: candidate.maxDTE,
       minDTE: candidate.minDTE,
@@ -374,7 +434,8 @@ export async function manageAllocationForGroup(
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
-      candidateSymbol: candidate.symbol,
+      candidateQuoteSymbol,
+      candidateSymbol: candidateOrderSymbol,
       candidateDTE: candidate.dte,
       estimatedOrderValue,
       maxDTE: candidate.maxDTE,
@@ -391,7 +452,7 @@ export async function manageAllocationForGroup(
 
   const placedRouteOrders = await placeRouteOrders(
     accountNumber,
-    candidate.symbol,
+    candidateOrderSymbol,
     routeOrders,
   );
   const estimatedOrderValue = placedRouteOrders.reduce(
@@ -406,17 +467,15 @@ export async function manageAllocationForGroup(
   return {
     accountNumber,
     action: "MANAGE_ALLOCATION",
-    candidateSymbol: candidate.symbol,
+    candidateQuoteSymbol,
+    candidateSymbol: candidateOrderSymbol,
     candidateDTE: candidate.dte,
     estimatedOrderValue,
     maxDTE: candidate.maxDTE,
     minDTE: candidate.minDTE,
     orderResponses: placedRouteOrders
-      .map((routeOrder) => routeOrder.orderResponse)
-      .filter(
-        (orderResponse): orderResponse is TastytradePlacedOrderResponse =>
-          orderResponse != null,
-      ),
+      .filter((routeOrder) => routeOrder.orderResponse != null)
+      .map((routeOrder) => routeOrder.orderResponse),
     placedOrder: placedRouteOrders.some((routeOrder) => routeOrder.placedOrder),
     preferredDTE: candidate.preferredDTE,
     quantity,
@@ -465,15 +524,14 @@ export async function getCurrentAllocationBudget(
   accountNumber: string,
 ): Promise<AllocationBudget> {
   const [accountBalance, evaluations] = await Promise.all([
-    tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
-      accountNumber,
-    ),
+    fetchNormalizedAccountBalance(accountNumber),
     getPositionEvaluations(accountNumber),
   ]);
 
   return buildInitialBudget(
     getAccountBalanceNumber(
       accountBalance,
+      "derivative_buying_power",
       "derivative-buying-power",
     ),
     getEffectiveTotalCapital(accountBalance),

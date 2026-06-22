@@ -1,11 +1,18 @@
-import tastytradeApi from "~/core/tastytrade-client";
-import { CurrentPosition } from "~/core/types";
-import { getAccountBalanceNumber } from "~/core/account-balance";
+import { getBidAskForSymbol } from "../core/market-data";
+import tastytradeApi from "../core/tastytrade-client";
+import { CurrentPosition } from "../core/types";
+import {
+  fetchNormalizedAccountBalance,
+  getAccountBalanceNumber,
+} from "../core/account-balance";
+import { safeJson } from "../core/logging";
+import { normalizePositions } from "../core/normalize";
+import { withLiveTradingLock } from "../core/run-lock";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./actions/order-utils";
 import { ProgrammaticAction } from "./evaluate-trading-strategy";
-import type { TastytradePlacedOrderResponse } from "~/core/types";
+import { placeOrderSafely } from "./actions/place-order";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
@@ -15,40 +22,19 @@ export interface SeedSymbolResult {
   buyingPowerAvailable?: number;
   candidateSymbol?: string;
   dte?: number;
-  dryRunResponse?: TastytradePlacedOrderResponse | unknown;
+  dryRunResponse?: unknown;
   estimatedOrderCost?: number;
   maxDTE?: number;
   minDTE?: number;
   preferredDTE?: number;
   quoteSymbol?: string;
-  orderResponse?: TastytradePlacedOrderResponse;
+  orderResponse?: unknown;
   placedOrder: boolean;
   side: "call" | "put";
   skippedReason?: string;
   strategy?: ProgrammaticAction | null;
   symbol: string;
   usedDteFallback?: boolean;
-}
-
-function extractDryRunSkipReason(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "seed order dry run failed";
-  }
-
-  const maybeResponse = error as Error & {
-    response?: {
-      data?: {
-        error?: { message?: string };
-        message?: string;
-      };
-    };
-  };
-
-  const brokerMessage =
-    maybeResponse.response?.data?.error?.message ??
-    maybeResponse.response?.data?.message;
-
-  return brokerMessage || error.message || "seed order dry run failed";
 }
 
 async function getDefaultAccountNumber(): Promise<string> {
@@ -66,10 +52,13 @@ async function hasOpenUnderlyingPosition(
   accountNumber: string,
   symbol: string,
 ): Promise<boolean> {
-  const currentPositions: CurrentPosition[] =
+  const rawPositions =
     await tastytradeApi.balancesAndPositionsService.getPositionsList(
       accountNumber,
     );
+  const currentPositions: CurrentPosition[] = normalizePositions(
+    Array.isArray(rawPositions) ? rawPositions : [],
+  );
 
   return currentPositions.some((position) => {
     const quantity = Number(position.quantity) || 0;
@@ -82,6 +71,16 @@ async function hasOpenUnderlyingPosition(
 }
 
 export async function seedSymbol(
+  symbol: string,
+  side: "call" | "put" = "call",
+  accountNumber?: string,
+): Promise<SeedSymbolResult> {
+  return withLiveTradingLock("seedSymbol", () =>
+    seedSymbolUnlocked(symbol, side, accountNumber),
+  );
+}
+
+async function seedSymbolUnlocked(
   symbol: string,
   side: "call" | "put" = "call",
   accountNumber?: string,
@@ -103,23 +102,22 @@ export async function seedSymbol(
   const strategy = candidate?.strategy;
 
   console.log(
-    JSON.stringify(
-      {
-        scope: "seed-symbol-candidate",
-        symbol: normalizedSymbol,
-        side,
-        resolvedAccountNumber,
-        strategy,
-        candidateDTE: candidate?.dte,
-        minDTE: candidate?.minDTE,
-        maxDTE: candidate?.maxDTE,
-        preferredDTE: candidate?.preferredDTE,
-        usedDteFallback: candidate?.usedDteFallback ?? false,
-        candidateSymbol: candidate?.symbol ?? candidate?.call ?? candidate?.put ?? null,
-      },
-      null,
-      2,
-    ),
+    safeJson({
+      scope: "seed-symbol-candidate",
+      symbol: normalizedSymbol,
+      side,
+      resolvedAccountNumber,
+      strategy,
+      candidateDTE: candidate?.dte,
+      minDTE: candidate?.minDTE,
+      maxDTE: candidate?.maxDTE,
+      preferredDTE: candidate?.preferredDTE,
+      usedDteFallback: candidate?.usedDteFallback ?? false,
+      orderSymbol: candidate?.orderSymbol ?? candidate?.symbol ?? null,
+      quoteSymbol: candidate?.quoteSymbol ?? null,
+      dayVolume: candidate?.dayVolume ?? null,
+      openInterest: candidate?.openInterest ?? null,
+    }),
   );
   if (
     !strategy ||
@@ -145,15 +143,15 @@ export async function seedSymbol(
   const usedDteFallback = candidate?.usedDteFallback;
 
   const candidateSymbol =
-    side === "put"
-      ? candidate?.put
-      : candidate?.call ?? candidate?.symbol;
+    candidate?.orderSymbol ??
+    (side === "put" ? candidate?.put : candidate?.call ?? candidate?.symbol);
   const quoteSymbol =
-    side === "put"
+    candidate?.quoteSymbol ??
+    (side === "put"
       ? candidate?.["put-streamer-symbol"] ?? candidateSymbol
       : candidate?.["call-streamer-symbol"] ??
         candidate?.streamerSymbol ??
-        candidateSymbol;
+        candidateSymbol);
 
   if (!candidateSymbol) {
     return {
@@ -188,10 +186,7 @@ export async function seedSymbol(
     };
   }
 
-  const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
-    quoteSymbol,
-    3000,
-  );
+  const bidAsk = await getBidAskForSymbol(quoteSymbol, 3000);
   const askPrice = bidAsk?.ask ?? bidAsk?.bid;
 
   if (!(askPrice && askPrice > 0)) {
@@ -235,12 +230,10 @@ export async function seedSymbol(
     ],
   };
 
-  const accountBalance =
-    await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
-      resolvedAccountNumber,
-    );
+  const accountBalance = await fetchNormalizedAccountBalance(resolvedAccountNumber);
   const buyingPowerAvailable = getAccountBalanceNumber(
     accountBalance,
+    "derivative_buying_power",
     "derivative-buying-power",
   );
   const estimatedOrderCost = numericLimitPrice * DEFAULT_CONTRACT_MULTIPLIER;
@@ -266,41 +259,7 @@ export async function seedSymbol(
     };
   }
 
-  let dryRunResponse: TastytradePlacedOrderResponse;
-  try {
-    dryRunResponse = await tastytradeApi.orderService.postOrderDryRun(
-      resolvedAccountNumber,
-      order,
-    );
-  } catch (error) {
-    return {
-      accountNumber: resolvedAccountNumber,
-      askPrice,
-      buyingPowerAvailable,
-      candidateSymbol,
-      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
-      dryRunResponse:
-        error instanceof Error
-          ? ((error as Error & { response?: { data?: unknown } }).response?.data ?? error.message)
-          : error,
-      estimatedOrderCost,
-      maxDTE,
-      minDTE,
-      placedOrder: false,
-      preferredDTE,
-      quoteSymbol,
-      side,
-      skippedReason: extractDryRunSkipReason(error),
-      strategy,
-      symbol: normalizedSymbol,
-      usedDteFallback,
-    };
-  }
-
-  const orderResponse = await tastytradeApi.orderService.createOrder(
-    resolvedAccountNumber,
-    order,
-  );
+  const safeOrderResult = await placeOrderSafely(resolvedAccountNumber, order);
 
   return {
     accountNumber: resolvedAccountNumber,
@@ -308,15 +267,16 @@ export async function seedSymbol(
     buyingPowerAvailable,
     candidateSymbol,
     dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
-    dryRunResponse,
+    dryRunResponse: safeOrderResult.dryRunResponse,
     estimatedOrderCost,
     maxDTE,
     minDTE,
     preferredDTE,
     quoteSymbol,
-    orderResponse,
-    placedOrder: true,
+    orderResponse: safeOrderResult.orderResponse,
+    placedOrder: safeOrderResult.submitted,
     side,
+    skippedReason: safeOrderResult.skippedReason,
     strategy,
     symbol: normalizedSymbol,
     usedDteFallback,

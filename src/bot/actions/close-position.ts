@@ -1,14 +1,14 @@
-import tastytradeApi from "~/core/tastytrade-client";
-import type { TastytradePlacedOrderResponse } from "~/core/types";
 import { PositionGroupEvaluation } from "../evaluate-position";
-import { ExecutionTargets } from "../evaluate-trading-strategy";
+import { ExecutionTargets, ProgrammaticAction } from "../evaluate-trading-strategy";
 import { buildClosingOrderPayload } from "./order-utils";
+import { placeOrderSafely, SafeOrderResult } from "./place-order";
 
 export interface ClosePositionResult {
   accountNumber: string;
-  action: "CLOSE_POSITION";
-  orderResponse?: TastytradePlacedOrderResponse;
+  action: Extract<ProgrammaticAction, "CLOSE_POSITION" | "LIQUIDATE_POSITION">;
+  orderResponse?: unknown;
   placedOrder: boolean;
+  safeOrderResult?: SafeOrderResult;
   skippedReason?: string;
   symbol: string;
   underlyingSymbol: string;
@@ -22,30 +22,35 @@ export async function closePosition(
   const results: ClosePositionResult[] = [];
 
   for (const snapshot of evaluation.positionSnapshots) {
-    const order = buildClosingOrderPayload(snapshot, targets);
+    const action =
+      evaluation.strategy.action === "LIQUIDATE_POSITION"
+        ? "LIQUIDATE_POSITION"
+        : "CLOSE_POSITION";
+    const order = buildClosingOrderPayload(snapshot, targets, {
+      liquidation: action === "LIQUIDATE_POSITION",
+    });
     if (!order) {
       results.push({
         accountNumber,
-        action: "CLOSE_POSITION",
+        action,
         placedOrder: false,
         skippedReason: "missing price or quantity",
-        symbol: snapshot.position.symbol,
+        symbol: snapshot.orderSymbol,
         underlyingSymbol: evaluation.underlyingSymbol,
       });
       continue;
     }
 
-    const orderResponse = await tastytradeApi.orderService.createOrder(
-      accountNumber,
-      order,
-    );
+    const safeOrderResult = await placeOrderSafely(accountNumber, order);
 
     results.push({
       accountNumber,
-      action: "CLOSE_POSITION",
-      orderResponse,
-      placedOrder: true,
-      symbol: snapshot.position.symbol,
+      action,
+      orderResponse: safeOrderResult.orderResponse,
+      placedOrder: safeOrderResult.submitted,
+      safeOrderResult,
+      skippedReason: safeOrderResult.skippedReason,
+      symbol: snapshot.orderSymbol,
       underlyingSymbol: evaluation.underlyingSymbol,
     });
   }

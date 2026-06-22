@@ -1,7 +1,17 @@
-import tastytradeApi from "~/core/tastytrade-client";
-import { getAccountBalanceNumber, getEffectiveTotalCapital } from "~/core/account-balance";
-import { TastytradeAccountBalance } from "~/core/types";
-import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
+import tastytradeApi from "../core/tastytrade-client";
+import {
+  fetchNormalizedAccountBalance,
+  getAccountBalanceNumber,
+  getEffectiveTotalCapital,
+} from "../core/account-balance";
+import { getBotConfig } from "../core/bot-config";
+import { redactAccountNumber, safeJson } from "../core/logging";
+import { withLiveTradingLock } from "../core/run-lock";
+import { AccountBalance } from "../core/types";
+import executePositionEvaluations, {
+  cancelAllLiveOrders,
+  PositionEvaluationExecutionResult,
+} from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
 import {
   applyPositionSizeWeightCaps,
@@ -16,6 +26,7 @@ import {
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
 import { PositionGroupEvaluation } from "./evaluate-position";
+import { getGroupMarketValue } from "./actions/order-utils";
 
 export interface RunCyclePreview {
   accountNumber: string;
@@ -42,7 +53,7 @@ export interface RunCyclePreview {
 }
 
 type RunCycleContext = {
-  accountBalances: TastytradeAccountBalance;
+  accountBalances: AccountBalance;
   completedEvaluations: PositionGroupEvaluation[];
   preview: RunCyclePreview;
   runExecutionTargets: {
@@ -80,7 +91,7 @@ function logRunSnapshot(preview: RunCyclePreview): void {
 
 function logRunPlan(preview: RunCyclePreview): void {
   console.log("\n================= RUN PLAN =================");
-  console.log(`Account: ${preview.accountNumber}`);
+  console.log(`Account: ${redactAccountNumber(preview.accountNumber)}`);
 
   if (preview.plan.rows.length === 0) {
     console.log("No allocation orders planned for this cycle.");
@@ -137,28 +148,39 @@ function computeGroupReturns(
   completedEvaluations: PositionGroupEvaluation[],
 ): RunGroupReturn[] {
   return completedEvaluations.map((evaluation) => {
-    const weightedAverageFill = evaluation.metrics.weightedAverageFill;
     const totalQuantityWeight = evaluation.positionSnapshots.reduce(
       (sum, snapshot) => sum + snapshot.quantityWeight,
       0,
     );
-    const totalCostBasis = weightedAverageFill * totalQuantityWeight;
+    const totalCostBasis = evaluation.positionSnapshots.reduce(
+      (sum, snapshot) =>
+        sum + snapshot.weightedAverageFill * snapshot.quantityWeight,
+      0,
+    );
+    const totalUnrealizedReturnBid = evaluation.positionSnapshots.reduce(
+      (sum, snapshot) => {
+        const value =
+          snapshot.positionDirection === "short"
+            ? snapshot.weightedAverageFill - snapshot.currentBidPrice
+            : snapshot.currentBidPrice - snapshot.weightedAverageFill;
+        return sum + value * snapshot.quantityWeight;
+      },
+      0,
+    );
+    const totalUnrealizedReturnAsk = evaluation.positionSnapshots.reduce(
+      (sum, snapshot) => {
+        const value =
+          snapshot.positionDirection === "short"
+            ? snapshot.weightedAverageFill - snapshot.currentAskPrice
+            : snapshot.currentAskPrice - snapshot.weightedAverageFill;
+        return sum + value * snapshot.quantityWeight;
+      },
+      0,
+    );
     const bidReturnPct =
-      weightedAverageFill > 0
-        ? (evaluation.metrics.currentBidPrice - weightedAverageFill) /
-          weightedAverageFill
-        : 0;
+      totalCostBasis > 0 ? totalUnrealizedReturnBid / totalCostBasis : 0;
     const askReturnPct =
-      weightedAverageFill > 0
-        ? (evaluation.metrics.currentAskPrice - weightedAverageFill) /
-          weightedAverageFill
-        : 0;
-    const totalUnrealizedReturnBid =
-      (evaluation.metrics.currentBidPrice - weightedAverageFill) *
-      totalQuantityWeight;
-    const totalUnrealizedReturnAsk =
-      (evaluation.metrics.currentAskPrice - weightedAverageFill) *
-      totalQuantityWeight;
+      totalCostBasis > 0 ? totalUnrealizedReturnAsk / totalCostBasis : 0;
 
     return {
       askReturnPct,
@@ -187,15 +209,12 @@ async function getDefaultAccountNumber(): Promise<string> {
 async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleContext> {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
 
-  const accountBalances: TastytradeAccountBalance =
-    await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
-      resolvedAccountNumber,
-    );
-
-  console.log(JSON.stringify({ scope: "account-balances", accountNumber: resolvedAccountNumber, accountBalances }, null, 2)); 
+  const accountBalances: AccountBalance =
+    await fetchNormalizedAccountBalance(resolvedAccountNumber);
 
   const buyingPower = getAccountBalanceNumber(
     accountBalances,
+    "derivative_buying_power",
     "derivative-buying-power",
   );
 
@@ -227,8 +246,20 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
       ...evaluation,
       executionTargets: runExecutionTargets,
     }))
-    .filter((evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION")
-    .sort((a, b) => a.currentReturn - b.currentReturn);
+    .filter((evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION");
+  if (getBotConfig().strategy.allocationPriority === "underweightThenBestReturn") {
+    plannedManageEvaluations.sort((a, b) => {
+      const exposureDelta =
+        getGroupMarketValue(a.positionSnapshots) -
+        getGroupMarketValue(b.positionSnapshots);
+      if (exposureDelta !== 0) {
+        return exposureDelta;
+      }
+      return b.currentReturn - a.currentReturn;
+    });
+  } else {
+    plannedManageEvaluations.sort((a, b) => b.currentReturn - a.currentReturn);
+  }
 
   const plannedRows: RunPlanRow[] = [];
 
@@ -299,32 +330,49 @@ export async function getRunCyclePreview(accountNumber?: string): Promise<RunCyc
   return context.preview;
 }
 
-export default async function runBotCycle(accountNumber?: string): Promise<RunHistoryEntry> {
+async function runBotCycleUnlocked(accountNumber?: string): Promise<RunHistoryEntry> {
   const context = await buildRunCycleContext(accountNumber);
 
-  console.log({
+  console.log(safeJson({
     accountNumber: context.preview.accountNumber,
     run: "bot-cycle",
-  });
+  }));
 
-  await cancelAllLiveOrders(context.preview.accountNumber);
+  const cancelledOrders = await cancelAllLiveOrders(context.preview.accountNumber);
 
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
   logRunPlan(context.preview);
 
-  const executionResults = await executePositionEvaluations(
-    context.preview.accountNumber,
-    context.accountBalances,
-    context.completedEvaluations,
-    context.runExecutionTargets,
-  );
+  let executionResults: PositionEvaluationExecutionResult = {
+    allocationOrders: [],
+    cancelledOrders,
+    closeOrders: [],
+    evaluations: context.completedEvaluations,
+  };
+  let executionError: string | undefined;
+
+  try {
+    executionResults = await executePositionEvaluations(
+      context.preview.accountNumber,
+      context.accountBalances,
+      context.completedEvaluations,
+      context.runExecutionTargets,
+      cancelledOrders,
+    );
+  } catch (error) {
+    executionError = error instanceof Error ? error.message : String(error);
+    console.error("Execution failed:", executionError);
+  }
 
   const executionSummary = {
     allocationEstimatedTotal: executionResults.allocationOrders.reduce(
       (sum, order) => sum + (order.estimatedOrderValue ?? 0),
       0,
     ),
+    allocationFailedCount: executionResults.allocationOrders.filter((order) =>
+      order.routeOrders.some((routeOrder) => routeOrder.safeOrderResult?.error != null),
+    ).length,
     allocationPlacedCount: executionResults.allocationOrders.filter(
       (order) => order.placedOrder,
     ).length,
@@ -334,11 +382,21 @@ export default async function runBotCycle(accountNumber?: string): Promise<RunHi
     cancelledOrderCount: executionResults.cancelledOrders.filter(
       (order) => order.cancelled,
     ).length,
+    closePlacedCount: executionResults.closeOrders.filter(
+      (order) => order.placedOrder,
+    ).length,
     closeOrderCount: executionResults.closeOrders.length,
+    closeSkippedCount: executionResults.closeOrders.filter(
+      (order) => !order.placedOrder,
+    ).length,
+    skippedEvaluationCount: executionResults.evaluations.filter(
+      (evaluation) => evaluation.strategy.action === "SKIP",
+    ).length,
   };
 
   const runHistoryEntry = await appendRunHistory({
     accountNumber: context.preview.accountNumber,
+    executionError,
     executionSummary,
     groups: context.preview.groups,
     plan: context.preview.plan,
@@ -353,8 +411,12 @@ export default async function runBotCycle(accountNumber?: string): Promise<RunHi
 
   console.log(
     "Execution results:",
-    JSON.stringify(executionResults, null, 2),
+    safeJson(executionResults),
   );
 
   return runHistoryEntry;
+}
+
+export default async function runBotCycle(accountNumber?: string): Promise<RunHistoryEntry> {
+  return withLiveTradingLock("runBotCycle", () => runBotCycleUnlocked(accountNumber));
 }

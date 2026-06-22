@@ -1,9 +1,10 @@
 import {
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
-} from "~/core/account-balance";
-import tastytradeApi from "~/core/tastytrade-client";
-import { TastytradeAccountBalance, TastytradeOrder } from "~/core/types";
+} from "../core/account-balance";
+import { getBotConfig } from "../core/bot-config";
+import tastytradeApi from "../core/tastytrade-client";
+import { AccountBalance } from "../core/types";
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   ExecutionTargets,
@@ -17,11 +18,19 @@ import {
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
 import { getDefaultAccountNumber } from "../ipc-server";
+import { getGroupMarketValue } from "./actions/order-utils";
+
+interface LiveOrder {
+  cancellable?: boolean;
+  id: number | string;
+  status?: string;
+}
 
 export interface CancelOrderResult {
   cancelled: boolean;
   orderId: number;
-  response?: TastytradeOrder;
+  error?: unknown;
+  response?: unknown;
   skippedReason?: string;
 }
 
@@ -43,9 +52,9 @@ export async function cancelAllLiveOrders(
 ): Promise<CancelOrderResult[]> {
 
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
-  const liveOrders = await tastytradeApi.orderService.getLiveOrders(
+  const liveOrders = (await tastytradeApi.orderService.getLiveOrders(
     resolvedAccountNumber,
-  );
+  )) as LiveOrder[];
 
   const results: CancelOrderResult[] = [];
   for (const order of liveOrders) {
@@ -63,15 +72,27 @@ export async function cancelAllLiveOrders(
       continue;
     }
 
-    const response = await tastytradeApi.orderService.cancelOrder(
-      resolvedAccountNumber,
-      orderId,
-    );
-    results.push({
-      cancelled: true,
-      orderId,
-      response,
-    });
+    try {
+      const response = await tastytradeApi.orderService.cancelOrder(
+        resolvedAccountNumber,
+        orderId,
+      );
+      results.push({
+        cancelled: true,
+        orderId,
+        response,
+      });
+    } catch (error) {
+      results.push({
+        cancelled: false,
+        error:
+          error instanceof Error
+            ? ((error as Error & { response?: { data?: unknown } }).response?.data ?? error.message)
+            : error,
+        orderId,
+        skippedReason: "cancel order failed",
+      });
+    }
   }
 
   return results;
@@ -79,12 +100,11 @@ export async function cancelAllLiveOrders(
 
 export async function executePositionEvaluations(
   accountNumber: string,
-  accountBalance: TastytradeAccountBalance,
+  accountBalance: AccountBalance,
   evaluations: PositionGroupEvaluation[],
   runExecutionTargets?: ExecutionTargets,
+  cancelledOrders: CancelOrderResult[] = [],
 ): Promise<PositionEvaluationExecutionResult> {
-  const cancelledOrders = await cancelAllLiveOrders(accountNumber);
-
   const sharedExecutionTargets =
     runExecutionTargets ??
     getTimeOfDayExecutionTargets(evaluations[0]?.metrics.currentTime ?? new Date());
@@ -95,20 +115,26 @@ export async function executePositionEvaluations(
   }));
 
   const closeEvaluations = evaluationsWithTargets.filter(
-    (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
+    (evaluation) =>
+      evaluation.strategy.action === "CLOSE_POSITION" ||
+      evaluation.strategy.action === "LIQUIDATE_POSITION",
   );
   const manageEvaluations = evaluationsWithTargets
     .filter(
       (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
     )
     .sort((a, b) => {
-      const aExposure = a.executionTargets?.targetAccountExposure ?? 0;
-      const bExposure = b.executionTargets?.targetAccountExposure ?? 0;
-
-      if (bExposure !== aExposure) {
-        return bExposure - aExposure;
+      if (getBotConfig().strategy.allocationPriority === "bestReturn") {
+        return b.currentReturn - a.currentReturn;
       }
-      return a.currentReturn - b.currentReturn;
+
+      const aExposure = getGroupMarketValue(a.positionSnapshots);
+      const bExposure = getGroupMarketValue(b.positionSnapshots);
+      if (aExposure !== bExposure) {
+        return aExposure - bExposure;
+      }
+
+      return b.currentReturn - a.currentReturn;
     });
 
   const closeOrders = (
@@ -126,10 +152,15 @@ export async function executePositionEvaluations(
   let budget = buildInitialBudget(
     getAccountBalanceNumber(
       accountBalance,
+      "derivative_buying_power",
       "derivative-buying-power",
     ),
     getEffectiveTotalCapital(accountBalance),
-    evaluationsWithTargets,
+    evaluationsWithTargets.filter(
+      (evaluation) =>
+        evaluation.strategy.action !== "CLOSE_POSITION" &&
+        evaluation.strategy.action !== "LIQUIDATE_POSITION",
+    ),
   );
   const allocationOrders: AllocationExecutionResult[] = [];
 
@@ -149,7 +180,7 @@ export async function executePositionEvaluations(
     allocationOrders,
     cancelledOrders,
     closeOrders,
-    evaluations: evaluationsWithTargets,
+    evaluations: [...evaluationsWithTargets],
   };
 }
 

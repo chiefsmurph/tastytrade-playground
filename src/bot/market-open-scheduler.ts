@@ -1,10 +1,10 @@
 import runBotCycle from "./run-cycle";
+import { getBotConfig } from "../core/bot-config";
 import {
   CurrentEquitiesSession,
   getCurrentEquitiesSession,
   isEquityOptionsMarketOpen,
-} from "~/core/market-sessions";
-const CLOSED_INTERVAL_MS = 60 * 1000;
+} from "../core/market-sessions";
 
 function getOpenIntervalMs(): number {
   const fromMs = Number(process.env.BOT_RUN_INTERVAL_MS);
@@ -17,7 +17,11 @@ function getOpenIntervalMs(): number {
     return Math.floor(fromMinutes * 60 * 1000);
   }
 
-  return 4 * 60 * 1000;
+  return getBotConfig().scheduler.openIntervalMs;
+}
+
+function getClosedIntervalMs(): number {
+  return getBotConfig().scheduler.closedIntervalMs;
 }
 
 type SchedulerMode =
@@ -34,6 +38,7 @@ export interface MarketOpenSchedulerStatus {
   lastSession?: CurrentEquitiesSession;
   mode: SchedulerMode;
   nextCheckAt?: string;
+  closedIntervalMs: number;
   openIntervalMs: number;
   started: boolean;
 }
@@ -46,6 +51,7 @@ type SchedulerState = MarketOpenSchedulerStatus & {
 const schedulerState: SchedulerState = {
   inFlight: false,
   mode: "stopped",
+  closedIntervalMs: getClosedIntervalMs(),
   openIntervalMs: getOpenIntervalMs(),
   started: false,
 };
@@ -81,7 +87,7 @@ async function runSchedulerTick() {
 
     if (!isEquityOptionsMarketOpen(session)) {
       schedulerState.mode = "waiting-for-open";
-      scheduleNextTick(CLOSED_INTERVAL_MS);
+      scheduleNextTick(schedulerState.closedIntervalMs);
       return;
     }
 
@@ -103,14 +109,17 @@ async function runSchedulerTick() {
     schedulerState.lastRunAtMs = runStartedAtMs;
     schedulerState.lastRunAt = new Date(runStartedAtMs).toISOString();
     schedulerState.mode = "waiting-for-next-run";
+    const elapsedMs = Date.now() - runStartedAtMs;
     scheduleNextTick(
-      Math.max(0, schedulerState.openIntervalMs - (Date.now() - runStartedAtMs)),
+      elapsedMs >= schedulerState.openIntervalMs
+        ? schedulerState.openIntervalMs
+        : schedulerState.openIntervalMs - elapsedMs,
     );
   } catch (error) {
     schedulerState.lastError =
       error instanceof Error ? error.message : String(error);
     schedulerState.mode = "waiting-for-open";
-    scheduleNextTick(CLOSED_INTERVAL_MS);
+    scheduleNextTick(schedulerState.closedIntervalMs);
   } finally {
     schedulerState.inFlight = false;
   }
@@ -125,6 +134,7 @@ export function getMarketOpenSchedulerStatus(): MarketOpenSchedulerStatus {
     lastSession: schedulerState.lastSession,
     mode: schedulerState.mode,
     nextCheckAt: schedulerState.nextCheckAt,
+    closedIntervalMs: schedulerState.closedIntervalMs,
     openIntervalMs: schedulerState.openIntervalMs,
     started: schedulerState.started,
   };
@@ -136,6 +146,7 @@ export function startMarketOpenScheduler(): MarketOpenSchedulerStatus {
   }
 
   schedulerState.openIntervalMs = getOpenIntervalMs();
+  schedulerState.closedIntervalMs = getClosedIntervalMs();
   schedulerState.started = true;
   schedulerState.mode = "waiting-for-open";
   scheduleNextTick(0);

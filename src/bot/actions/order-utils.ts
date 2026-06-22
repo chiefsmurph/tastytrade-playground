@@ -1,27 +1,37 @@
-import { CurrentPosition } from "~/core/types";
-import type {
-  OrderRequest,
-  TastytradeInstrumentType,
-  TastytradeOrderAction,
-} from "~/core/types";
+import { getBotConfig } from "../../core/bot-config";
+import { CurrentPosition } from "../../core/types";
 import { PositionQuoteSnapshot } from "../evaluate-position";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
 
+const DEFAULT_OPTION_TICK_SIZE = 0.01;
+
 export interface OrderLeg {
-  action: TastytradeOrderAction;
+  action: string;
   symbol: string;
   quantity: number;
-  "instrument-type": TastytradeInstrumentType;
+  "instrument-type": string;
 }
 
-export type OrderPayload = OrderRequest;
+export interface OrderPayload {
+  "advanced-instructions"?: {
+    "strict-position-effect-validation": boolean;
+  };
+  legs: OrderLeg[];
+  "order-type": "Limit" | "Market";
+  price?: string;
+  "price-effect"?: "Credit" | "Debit";
+  source: string;
+  "time-in-force": "Day" | "GTC";
+}
 
 export function getPositionQuantity(position: CurrentPosition): number {
   return Math.abs(Number(position.quantity) || 0);
 }
 
 export function isShortPosition(position: CurrentPosition): boolean {
-  const quantityDirection = String(position["quantity-direction"] ?? "").toLowerCase();
+  const quantityDirection = String(
+    position.quantityDirection ?? position.quantity_direction ?? "",
+  ).toLowerCase();
   if (quantityDirection === "short") {
     return true;
   }
@@ -29,17 +39,15 @@ export function isShortPosition(position: CurrentPosition): boolean {
     return false;
   }
 
-  return String(position["cost-effect"] ?? "").toLowerCase() === "credit";
+  return String(position.costEffect ?? position.cost_effect ?? "").toLowerCase() === "credit";
 }
 
-export function getClosingAction(position: CurrentPosition): TastytradeOrderAction {
+export function getClosingAction(position: CurrentPosition): string {
   return isShortPosition(position) ? "Buy to Close" : "Sell to Close";
 }
 
-export function normalizeInstrumentType(
-  instrumentType: string,
-): TastytradeInstrumentType {
-  switch (instrumentType.trim().toLowerCase()) {
+export function normalizeInstrumentType(instrumentType: string | undefined): string {
+  switch ((instrumentType ?? "").trim().toLowerCase()) {
     case "equity":
       return "Equity";
     case "option":
@@ -53,7 +61,7 @@ export function normalizeInstrumentType(
     case "crypto":
       return "Cryptocurrency";
     default:
-      return instrumentType as TastytradeInstrumentType;
+      return instrumentType || "Equity Option";
   }
 }
 
@@ -80,22 +88,37 @@ export function roundOrderPrice(price: number): string {
   return (Math.round(price * 100) / 100).toFixed(2);
 }
 
+function getLiquidationPrice(snapshot: PositionQuoteSnapshot): number | null {
+  const slippage = getBotConfig().liquidation.slippageTicks * DEFAULT_OPTION_TICK_SIZE;
+  if (isShortPosition(snapshot.position)) {
+    const ask = snapshot.currentAskPrice || snapshot.currentBidPrice;
+    return ask > 0 ? ask + slippage : null;
+  }
+
+  const bid = snapshot.currentBidPrice || snapshot.currentAskPrice;
+  return bid > 0 ? Math.max(DEFAULT_OPTION_TICK_SIZE, bid - slippage) : null;
+}
+
 export function buildClosingOrderPayload(
   snapshot: PositionQuoteSnapshot,
   targets: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight">,
+  options: { liquidation?: boolean } = {},
 ): OrderPayload | null {
   const quantity = getPositionQuantity(snapshot.position);
   if (quantity <= 0) {
     return null;
   }
 
-  const price = getWeightedOrderPrice(
-    snapshot.currentBidPrice,
-    snapshot.currentAskPrice,
-    targets,
-  );
+  const price =
+    options.liquidation && getBotConfig().liquidation.mode === "marketableLimit"
+      ? getLiquidationPrice(snapshot)
+      : getWeightedOrderPrice(
+          snapshot.currentBidPrice,
+          snapshot.currentAskPrice,
+          targets,
+        );
 
-  if (!(price > 0)) {
+  if (!(price && price > 0)) {
     return null;
   }
 
@@ -113,10 +136,10 @@ export function buildClosingOrderPayload(
     legs: [
       {
         action,
-        symbol: snapshot.position.symbol,
+        symbol: snapshot.orderSymbol,
         quantity,
         "instrument-type": normalizeInstrumentType(
-          String(snapshot.position["instrument-type"] ?? ""),
+          snapshot.position.instrumentType ?? snapshot.position.instrument_type,
         ),
       },
     ],
@@ -125,7 +148,13 @@ export function buildClosingOrderPayload(
 
 export function getGroupMarketValue(positionSnapshots: PositionQuoteSnapshot[]): number {
   return positionSnapshots.reduce(
-    (sum, snapshot) => sum + snapshot.currentBidPrice * snapshot.quantityWeight,
+    (sum, snapshot) => {
+      const price =
+        snapshot.positionDirection === "short"
+          ? snapshot.currentAskPrice
+          : snapshot.currentBidPrice;
+      return sum + Math.max(0, price) * snapshot.quantityWeight;
+    },
     0,
   );
 }
