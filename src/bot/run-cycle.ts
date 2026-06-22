@@ -1,7 +1,12 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { getAccountBalanceNumber, getEffectiveTotalCapital } from "~/core/account-balance";
+import {
+  getAccountBalanceNumber,
+  getEffectiveTotalCapital,
+} from "~/core/account-balance";
 import { TastytradeAccountBalance } from "~/core/types";
-import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
+import executePositionEvaluations, {
+  cancelAllLiveOrders,
+} from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
 import {
   applyPositionSizeWeightCaps,
@@ -9,7 +14,12 @@ import {
   getTimeOfDayExecutionTargets,
 } from "./evaluate-trading-strategy";
 import { setLastBotRunState } from "./last-run-state";
-import { appendRunHistory, RunGroupReturn, RunHistoryEntry, RunPlanRow } from "./run-history";
+import {
+  appendRunHistory,
+  RunGroupReturn,
+  RunHistoryEntry,
+  RunPlanRow,
+} from "./run-history";
 import {
   buildInitialBudget,
   getUpdatedBudgetAfterAllocation,
@@ -71,7 +81,9 @@ function logRunSnapshot(preview: RunCyclePreview): void {
     `Target Exposure:  ${formatPercent(preview.snapshot.targetExposurePct)} (${formatCurrency(preview.snapshot.targetExposureValue)} of ${formatCurrency(preview.snapshot.totalCapital)})`,
   );
   console.log(`Target DTE:       ${preview.snapshot.targetDTE}`);
-  console.log(`Take Profit:      ${formatPercent(preview.snapshot.dynamicTakeProfitTarget)}`);
+  console.log(
+    `Take Profit:      ${formatPercent(preview.snapshot.dynamicTakeProfitTarget)}`,
+  );
   console.log(
     `Route Weights:    bid=${preview.snapshot.routeWeights.bid.toFixed(2)} mid=${preview.snapshot.routeWeights.mid.toFixed(2)} ask=${preview.snapshot.routeWeights.ask.toFixed(2)}`,
   );
@@ -116,18 +128,31 @@ function logGroupReturns(groupReturns: RunGroupReturn[]): void {
     return;
   }
 
-  console.log("underlying            bid%      ask%      current%   costBasis     unrlzdBid$   unrlzdAsk$");
-  console.log("--------------------  --------  --------  ---------  -----------  -----------  -----------");
+  console.log(
+    "underlying            bid%      ask%      current%   costBasis     unrlzdBid$   unrlzdAsk$",
+  );
+  console.log(
+    "--------------------  --------  --------  ---------  -----------  -----------  -----------",
+  );
 
   for (const group of groupReturns) {
     const underlying = group.underlyingSymbol.padEnd(20, " ");
     const bidReturn = formatPercent(group.bidReturnPct).padStart(8, " ");
     const askReturn = formatPercent(group.askReturnPct).padStart(8, " ");
-    const currentReturn = formatPercent(group.currentReturnPct).padStart(9, " ");
+    const currentReturn = formatPercent(group.currentReturnPct).padStart(
+      9,
+      " ",
+    );
     const costBasis = formatCurrency(group.totalCostBasis).padStart(11, " ");
-    const unrealizedBid = formatCurrency(group.totalUnrealizedReturnBid).padStart(11, " ");
-    const unrealizedAsk = formatCurrency(group.totalUnrealizedReturnAsk).padStart(11, " ");
-    console.log(`${underlying}  ${bidReturn}  ${askReturn}  ${currentReturn}  ${costBasis}  ${unrealizedBid}  ${unrealizedAsk}`);
+    const unrealizedBid = formatCurrency(
+      group.totalUnrealizedReturnBid,
+    ).padStart(11, " ");
+    const unrealizedAsk = formatCurrency(
+      group.totalUnrealizedReturnAsk,
+    ).padStart(11, " ");
+    console.log(
+      `${underlying}  ${bidReturn}  ${askReturn}  ${currentReturn}  ${costBasis}  ${unrealizedBid}  ${unrealizedAsk}`,
+    );
   }
 
   console.log("===========================================\n");
@@ -184,22 +209,37 @@ async function getDefaultAccountNumber(): Promise<string> {
   return accountNumber;
 }
 
-async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleContext> {
-  const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+async function buildRunCycleContext(
+  accountNumber?: string,
+): Promise<RunCycleContext> {
+  const resolvedAccountNumber =
+    accountNumber ?? (await getDefaultAccountNumber());
 
   const accountBalances: TastytradeAccountBalance =
     await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
       resolvedAccountNumber,
     );
 
-  console.log(JSON.stringify({ scope: "account-balances", accountNumber: resolvedAccountNumber, accountBalances }, null, 2)); 
+  console.log(
+    JSON.stringify(
+      {
+        scope: "account-balances",
+        accountNumber: resolvedAccountNumber,
+        accountBalances,
+      },
+      null,
+      2,
+    ),
+  );
 
   const buyingPower = getAccountBalanceNumber(
     accountBalances,
     "derivative-buying-power",
   );
 
-  const completedEvaluations = await getPositionEvaluations(resolvedAccountNumber);
+  const completedEvaluations = await getPositionEvaluations(
+    resolvedAccountNumber,
+  );
   const groupReturns = computeGroupReturns(completedEvaluations);
   const currentTime = new Date();
   const baseExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
@@ -234,7 +274,8 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
 
   let planningBudget = startingBudget;
   for (const [index, evaluation] of plannedManageEvaluations.entries()) {
-    const groupsRemainingForAllocation = plannedManageEvaluations.length - index;
+    const groupsRemainingForAllocation =
+      plannedManageEvaluations.length - index;
     const planResult = await manageAllocationForGroup(
       resolvedAccountNumber,
       evaluation,
@@ -258,10 +299,14 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
       });
     }
 
-    planningBudget = getUpdatedBudgetAfterAllocation(planningBudget, evaluation, {
-      ...planResult,
-      placedOrder: (planResult.quantity ?? 0) > 0,
-    });
+    planningBudget = getUpdatedBudgetAfterAllocation(
+      planningBudget,
+      evaluation,
+      {
+        ...planResult,
+        placedOrder: (planResult.quantity ?? 0) > 0,
+      },
+    );
   }
 
   return {
@@ -273,7 +318,10 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
       plan: {
         rows: plannedRows,
         totalContracts: plannedRows.reduce((sum, row) => sum + row.quantity, 0),
-        totalEstimatedCost: plannedRows.reduce((sum, row) => sum + row.estimatedCost, 0),
+        totalEstimatedCost: plannedRows.reduce(
+          (sum, row) => sum + row.estimatedCost,
+          0,
+        ),
       },
       snapshot: {
         dynamicTakeProfitTarget,
@@ -294,20 +342,24 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
   };
 }
 
-export async function getRunCyclePreview(accountNumber?: string): Promise<RunCyclePreview> {
+export async function getRunCyclePreview(
+  accountNumber?: string,
+): Promise<RunCyclePreview> {
   const context = await buildRunCycleContext(accountNumber);
   return context.preview;
 }
 
-export default async function runBotCycle(accountNumber?: string): Promise<RunHistoryEntry> {
+export default async function runBotCycle(
+  accountNumber?: string,
+): Promise<RunHistoryEntry> {
+  await cancelAllLiveOrders(accountNumber);
+
   const context = await buildRunCycleContext(accountNumber);
 
   console.log({
     accountNumber: context.preview.accountNumber,
     run: "bot-cycle",
   });
-
-  await cancelAllLiveOrders(context.preview.accountNumber);
 
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
@@ -351,10 +403,7 @@ export default async function runBotCycle(accountNumber?: string): Promise<RunHi
     executionResults,
   );
 
-  console.log(
-    "Execution results:",
-    JSON.stringify(executionResults, null, 2),
-  );
+  console.log("Execution results:", JSON.stringify(executionResults, null, 2));
 
   return runHistoryEntry;
 }

@@ -20,6 +20,10 @@ import {
 } from "./bot/market-open-scheduler";
 import { getLastBotRunState } from "./bot/last-run-state";
 import { getRecentRunHistory } from "./bot/run-history";
+import {
+  getCurrentEquitiesSession,
+  isEquityOptionsMarketOpen,
+} from "./core/market-sessions";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 
@@ -69,6 +73,13 @@ const commandHandlers: Record<string, CommandHandler> = {
   "core:fetchOptionChainWithVolume": async ([symbol]) => {
     assertArg(symbol, "symbol");
     return tastytradeApi.johnsService.fetchOptionChainWithVolume(symbol);
+  },
+  "core:getCurrentEquitiesSession": async () => {
+    return getCurrentEquitiesSession();
+  },
+  "core:isEquityOptionsMarketOpen": async () => {
+    const session = await getCurrentEquitiesSession();
+    return isEquityOptionsMarketOpen(session);
   },
   "bot:getOptionCandidates": async ([symbol, side]) => {
     assertArg(symbol, "symbol");

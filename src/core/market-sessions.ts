@@ -2,6 +2,21 @@ import tastytradeApi from "./tastytrade-client";
 
 type AnyRecord = Record<string, unknown>;
 
+export interface EquitiesSessionWindow extends AnyRecord {
+  "close-at"?: string;
+  "close-at-ext"?: string;
+  "instrument-collection"?: string;
+  "open-at"?: string;
+  "session-date"?: string;
+  "start-at"?: string;
+}
+
+export interface EquitiesSessionsCurrentPayload extends EquitiesSessionWindow {
+  "next-session"?: EquitiesSessionWindow;
+  "previous-session"?: EquitiesSessionWindow;
+  state?: string;
+}
+
 export interface CurrentEquitiesSession {
   closesAt?: string;
   isOpen: boolean;
@@ -10,6 +25,17 @@ export interface CurrentEquitiesSession {
   raw: unknown;
   sessionLabel?: string;
   sessionStatus?: string;
+}
+
+function asCurrentSessionPayload(
+  value: unknown,
+): EquitiesSessionsCurrentPayload | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  return record as EquitiesSessionsCurrentPayload;
 }
 
 function asRecord(value: unknown): AnyRecord | null {
@@ -155,14 +181,16 @@ export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSessio
     "/market-time/equities/sessions/current",
   );
   const unwrapped = unwrapCurrentSession(extractResponseData(response));
-  const sessionRecord = asRecord(unwrapped);
+  const sessionRecord = asCurrentSessionPayload(unwrapped);
   const sessionLabel = readString(sessionRecord, [
+    "instrument-collection",
     "session-type",
     "sessionType",
     "type",
     "name",
   ]);
   const sessionStatus = readString(sessionRecord, [
+    "state",
     "session-status",
     "sessionStatus",
     "status",
@@ -170,6 +198,8 @@ export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSessio
     "marketStatus",
   ]);
   const opensAt = readString(sessionRecord, [
+    "open-at",
+    "openAt",
     "opens-at",
     "opensAt",
     "start-at",
@@ -178,6 +208,10 @@ export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSessio
     "beginsAt",
   ]);
   const closesAt = readString(sessionRecord, [
+    "close-at",
+    "closeAt",
+    "close-at-ext",
+    "closeAtExt",
     "closes-at",
     "closesAt",
     "end-at",
