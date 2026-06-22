@@ -92,6 +92,12 @@ This returns keyed target checks for `7`, `14`, and `30` DTE plus a compact summ
 node run bot:getCurrentAllocationBudget
 ```
 
+```bash
+node run bot:getTimeOfDayExecutionTargets 10:14
+```
+
+Pass `HH:mm` in Pacific time.
+
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
@@ -101,6 +107,7 @@ Supported IPC commands
 - `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
 - `bot:getOptionHealthForSymbol <symbol> [call|put]`
 - `bot:getCurrentAllocationBudget [accountNumber]`
+- `bot:getTimeOfDayExecutionTargets <HH:mm>`
 - `bot:everyFourMinutes`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`

@@ -2,6 +2,7 @@ import { getBidAskForSymbol } from "../core/market-data";
 import { CurrentPosition } from "../core/types";
 import {
   buildExecutionStrategy,
+  ExecutionTargets,
   ExecutionStrategy,
   PositionMetrics,
 } from "./evaluate-trading-strategy";
@@ -21,6 +22,7 @@ export interface PositionGroupEvaluation {
   positionSnapshots: PositionQuoteSnapshot[];
   metrics: PositionMetrics;
   strategy: ExecutionStrategy;
+  executionTargets?: ExecutionTargets;
   currentReturn: number;
 }
 

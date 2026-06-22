@@ -5,6 +5,10 @@ import {
 import tastytradeApi from "../core/tastytrade-client";
 import { AccountBalance } from "../core/types";
 import { PositionGroupEvaluation } from "./evaluate-position";
+import {
+  ExecutionTargets,
+  getTimeOfDayExecutionTargets,
+} from "./evaluate-trading-strategy";
 import { closePosition, ClosePositionResult } from "./actions/close-position";
 import {
   AllocationExecutionResult,
@@ -83,26 +87,45 @@ export async function executePositionEvaluations(
   accountNumber: string,
   accountBalance: AccountBalance,
   evaluations: PositionGroupEvaluation[],
+  runExecutionTargets?: ExecutionTargets,
 ): Promise<PositionEvaluationExecutionResult> {
   const cancelledOrders = await cancelAllLiveOrders(accountNumber);
 
-  const closeEvaluations = evaluations.filter(
+  const sharedExecutionTargets =
+    runExecutionTargets ??
+    getTimeOfDayExecutionTargets(evaluations[0]?.metrics.currentTime ?? new Date());
+
+  const evaluationsWithTargets = evaluations.map((evaluation) => ({
+    ...evaluation,
+    executionTargets: sharedExecutionTargets,
+  }));
+
+  const closeEvaluations = evaluationsWithTargets.filter(
     (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
   );
-  const manageEvaluations = evaluations
+  const manageEvaluations = evaluationsWithTargets
     .filter(
       (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
     )
     .sort((a, b) => {
-      if (b.strategy.targetAccountExposure !== a.strategy.targetAccountExposure) {
-        return b.strategy.targetAccountExposure - a.strategy.targetAccountExposure;
+      const aExposure = a.executionTargets?.targetAccountExposure ?? 0;
+      const bExposure = b.executionTargets?.targetAccountExposure ?? 0;
+
+      if (bExposure !== aExposure) {
+        return bExposure - aExposure;
       }
       return a.currentReturn - b.currentReturn;
     });
 
   const closeOrders = (
     await Promise.all(
-      closeEvaluations.map((evaluation) => closePosition(accountNumber, evaluation)),
+      closeEvaluations.map((evaluation) =>
+        closePosition(
+          accountNumber,
+          evaluation,
+          evaluation.executionTargets ?? sharedExecutionTargets,
+        ),
+      ),
     )
   ).flat();
 
@@ -113,7 +136,7 @@ export async function executePositionEvaluations(
       "derivative-buying-power",
     ),
     getEffectiveTotalCapital(accountBalance),
-    evaluations,
+    evaluationsWithTargets,
   );
   const allocationOrders: AllocationExecutionResult[] = [];
 
@@ -133,7 +156,7 @@ export async function executePositionEvaluations(
     allocationOrders,
     cancelledOrders,
     closeOrders,
-    evaluations,
+    evaluations: evaluationsWithTargets,
   };
 }
 

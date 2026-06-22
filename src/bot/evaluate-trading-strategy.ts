@@ -1,13 +1,10 @@
+import { time } from "node:console";
+
 export type ProgrammaticAction = "MANAGE_ALLOCATION" | "CLOSE_POSITION";
 
 // Unified return structure containing target state goals for the execution loop
 export interface ExecutionStrategy {
   action: ProgrammaticAction;
-  targetDTE: number;             // Ideal Days to Expiration to target for this specific hour
-  targetAccountExposure: number; // Maximum % of capital allowed to be deployed
-  bidWeight: number;             // Order routing allocation across the spread
-  midWeight: number;
-  askWeight: number;
 }
 
 export interface ExecutionTargets {
@@ -108,6 +105,10 @@ export function evaluateTradingStrategy(metrics: PositionMetrics): ProgrammaticA
 
 export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTargets {
   const timeInMinutes = getTimeInMinutes(currentTime);
+  return getTimeOfDayExecutionTargetsForMinute(timeInMinutes);
+}
+
+function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): ExecutionTargets {
 
   const SIX_THIRTY_AM      = 6 * 60 + 30;
   const NINE_AM            = 9 * 60 + 0;
@@ -117,7 +118,7 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
   const TWELVE_THIRTY_PM   = 12 * 60 + 30;
 
   const targetDTE = Math.round(
-    blendBySchedule(currentTime, [
+    blendBySchedule(timeInMinutes, [
       { minute: SIX_THIRTY_AM, value: 30 },
       { minute: NINE_AM, value: 25 },
       { minute: TEN_AM, value: 20 },
@@ -126,7 +127,7 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
       { minute: TWELVE_THIRTY_PM, value: 7 },
     ]),
   );
-  const targetAccountExposure = blendBySchedule(currentTime, [
+  const targetAccountExposure = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.50 },
     { minute: NINE_AM, value: 0.50 },
     { minute: TEN_AM, value: 0.65 },
@@ -134,7 +135,7 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
     { minute: ELEVEN_THIRTY_AM, value: 1.00 },
     { minute: TWELVE_THIRTY_PM, value: 1.00 },
   ]);
-  const bidWeight = blendBySchedule(currentTime, [
+  const bidWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.70 },
     { minute: NINE_AM, value: 0.50 },
     { minute: TEN_AM, value: 0.33 },
@@ -142,7 +143,7 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
     { minute: ELEVEN_THIRTY_AM, value: 0.00 },
     { minute: TWELVE_THIRTY_PM, value: 0.00 },
   ]);
-  const midWeight = blendBySchedule(currentTime, [
+  const midWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.20 },
     { minute: NINE_AM, value: 0.30 },
     { minute: TEN_AM, value: 0.33 },
@@ -150,7 +151,7 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
     { minute: ELEVEN_THIRTY_AM, value: 0.00 },
     { minute: TWELVE_THIRTY_PM, value: 0.00 },
   ]);
-  const askWeight = blendBySchedule(currentTime, [
+  const askWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.10 },
     { minute: NINE_AM, value: 0.20 },
     { minute: TEN_AM, value: 0.33 },
@@ -178,22 +179,29 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
   };
 }
 
+export function getTimeOfDayExecutionTargetsForPstTime(
+  timeOfDay?: string,
+): ExecutionTargets {
+  if (!timeOfDay) {
+    return getTimeOfDayExecutionTargets(new Date());
+  }
+  const match = timeOfDay.trim().match(/^(?:[01]?\d|2[0-3]):[0-5]\d$/);
+  if (!match) {
+    throw new Error("Invalid time format. Expected HH:mm in Pacific time, e.g. 10:14");
+  }
+
+  const [hoursText, minutesText] = timeOfDay.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  const timeInMinutes = hours * 60 + minutes;
+
+  return getTimeOfDayExecutionTargetsForMinute(timeInMinutes);
+}
+
 export function buildExecutionStrategy(metrics: PositionMetrics): ExecutionStrategy {
   return {
     action: evaluateTradingStrategy(metrics),
-    ...getTimeOfDayExecutionTargets(metrics.currentTime),
   };
-}
-
-function createStrategy(
-  action: ProgrammaticAction,
-  targetDTE: number,
-  targetAccountExposure: number,
-  bidWeight: number,
-  midWeight: number,
-  askWeight: number
-): ExecutionStrategy {
-  return { action, targetDTE, targetAccountExposure, bidWeight, midWeight, askWeight };
 }
 
 function roundToTwoDecimals(value: number): number {
@@ -201,14 +209,13 @@ function roundToTwoDecimals(value: number): number {
 }
 
 function blendBySchedule(
-  currentTime: Date,
+  currentMinute: number,
   schedule: TimeSchedulePoint[],
 ): number {
   if (schedule.length === 0) {
     return 0;
   }
 
-  const currentMinute = getTimeInMinutes(currentTime);
   const sortedSchedule = [...schedule].sort((left, right) => left.minute - right.minute);
 
   if (currentMinute <= sortedSchedule[0].minute) {
@@ -226,7 +233,7 @@ function blendBySchedule(
 
     if (currentMinute >= startPoint.minute && currentMinute < endPoint.minute) {
       return calcTimeBlend(
-        currentTime,
+        new Date(0, 0, 0, Math.floor(currentMinute / 60), currentMinute % 60),
         startPoint.value,
         endPoint.value,
         startPoint.minute,

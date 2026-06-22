@@ -14,6 +14,7 @@ import {
   OrderPayload,
   roundOrderPrice,
 } from "./order-utils";
+import { ExecutionTargets } from "../evaluate-trading-strategy";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
@@ -33,6 +34,7 @@ export interface AllocationRouteResult {
 export interface AllocationExecutionResult {
   accountNumber: string;
   action: "MANAGE_ALLOCATION";
+  candidateSymbol?: string;
   candidateDTE?: number;
   estimatedOrderValue?: number;
   maxDTE?: number;
@@ -51,6 +53,10 @@ export interface AllocationBudget {
   buyingPowerRemaining: number;
   portfolioExposure: number;
   totalCapital: number;
+}
+
+interface ManageAllocationOptions {
+  dryRun?: boolean;
 }
 
 function getCandidateSide(evaluation: PositionGroupEvaluation): "call" | "put" {
@@ -72,7 +78,7 @@ function getMidpointPrice(bid: number, ask: number): number {
 function buildRouteOrders(
   bid: number,
   ask: number,
-  evaluation: PositionGroupEvaluation,
+  targets: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight">,
 ): AllocationRouteResult[] {
   const midpoint = getMidpointPrice(bid, ask);
 
@@ -83,7 +89,7 @@ function buildRouteOrders(
       placedOrder: false,
       quantity: 0,
       route: "bid" as const,
-      weight: evaluation.strategy.bidWeight,
+      weight: targets.bidWeight,
     },
     {
       estimatedOrderValue: 0,
@@ -91,7 +97,7 @@ function buildRouteOrders(
       placedOrder: false,
       quantity: 0,
       route: "mid" as const,
-      weight: evaluation.strategy.midWeight,
+      weight: targets.midWeight,
     },
     {
       estimatedOrderValue: 0,
@@ -99,7 +105,7 @@ function buildRouteOrders(
       placedOrder: false,
       quantity: 0,
       route: "ask" as const,
-      weight: evaluation.strategy.askWeight,
+      weight: targets.askWeight,
     },
   ].filter((routeOrder) => routeOrder.weight > 0 && routeOrder.limitPrice > 0);
 }
@@ -226,13 +232,27 @@ export async function manageAllocationForGroup(
   evaluation: PositionGroupEvaluation,
   budget: AllocationBudget,
   groupsRemainingForAllocation = 1,
+  options: ManageAllocationOptions = {},
 ): Promise<AllocationExecutionResult> {
-  const targetExposure = budget.totalCapital * evaluation.strategy.targetAccountExposure;
+  const targets = evaluation.executionTargets;
+
+  if (!targets) {
+    return {
+      accountNumber,
+      action: "MANAGE_ALLOCATION",
+      placedOrder: false,
+      routeOrders: [],
+      skippedReason: "execution targets missing",
+      underlyingSymbol: evaluation.underlyingSymbol,
+    };
+  }
+
+  const targetExposure = budget.totalCapital * targets.targetAccountExposure;
   const exposureHeadroom = targetExposure - budget.portfolioExposure;
   const normalizedGroupsRemaining = Math.max(1, groupsRemainingForAllocation);
   const perGroupExposureHeadroom = exposureHeadroom / normalizedGroupsRemaining;
 
-  if (evaluation.strategy.targetAccountExposure <= 0) {
+  if (targets.targetAccountExposure <= 0) {
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
@@ -258,7 +278,7 @@ export async function manageAllocationForGroup(
   const candidate = await getTopOptionCandidateForSymbol(
     evaluation.underlyingSymbol,
     optionSide,
-    evaluation.strategy.targetDTE,
+    targets.targetDTE,
   );
 
   console.log(
@@ -266,7 +286,7 @@ export async function manageAllocationForGroup(
       scope: "manage-allocation-candidate",
       underlyingSymbol: evaluation.underlyingSymbol,
       requestedSide: optionSide,
-      targetDTE: evaluation.strategy.targetDTE,
+      targetDTE: targets.targetDTE,
       candidateDTE: candidate?.dte,
       minDTE: candidate?.minDTE,
       maxDTE: candidate?.maxDTE,
@@ -300,7 +320,7 @@ export async function manageAllocationForGroup(
     budget.buyingPowerRemaining,
   );
   const routeOrders = allocateContractsByWeight(
-    buildRouteOrders(bid, ask, evaluation),
+    buildRouteOrders(bid, ask, targets),
     availableCapital,
   );
 
@@ -329,6 +349,7 @@ export async function manageAllocationForGroup(
     return {
       accountNumber,
       action: "MANAGE_ALLOCATION",
+      candidateSymbol: candidate.symbol,
       candidateDTE: candidate.dte,
       maxDTE: candidate.maxDTE,
       minDTE: candidate.minDTE,
@@ -336,6 +357,30 @@ export async function manageAllocationForGroup(
       preferredDTE: candidate.preferredDTE,
       routeOrders,
       skippedReason: "insufficient budget for one contract",
+      underlyingSymbol: evaluation.underlyingSymbol,
+      usedDteFallback: candidate.usedDteFallback,
+    };
+  }
+
+  if (options.dryRun) {
+    const estimatedOrderValue = routeOrders.reduce(
+      (sum, routeOrder) => sum + routeOrder.estimatedOrderValue,
+      0,
+    );
+
+    return {
+      accountNumber,
+      action: "MANAGE_ALLOCATION",
+      candidateSymbol: candidate.symbol,
+      candidateDTE: candidate.dte,
+      estimatedOrderValue,
+      maxDTE: candidate.maxDTE,
+      minDTE: candidate.minDTE,
+      placedOrder: false,
+      preferredDTE: candidate.preferredDTE,
+      quantity: totalQuantity,
+      routeOrders,
+      skippedReason: "dry-run plan",
       underlyingSymbol: evaluation.underlyingSymbol,
       usedDteFallback: candidate.usedDteFallback,
     };
@@ -358,6 +403,7 @@ export async function manageAllocationForGroup(
   return {
     accountNumber,
     action: "MANAGE_ALLOCATION",
+    candidateSymbol: candidate.symbol,
     candidateDTE: candidate.dte,
     estimatedOrderValue,
     maxDTE: candidate.maxDTE,

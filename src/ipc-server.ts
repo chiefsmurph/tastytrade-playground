@@ -9,6 +9,7 @@ import {
   getOptionHealthForSymbol,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
+import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "./bot/evaluate-trading-strategy";
 import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
 import everyFourMinutes from "./bot/every-four-minutes";
@@ -84,6 +85,9 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     const normalizedSide = side === "put" ? "put" : "call";
     return getOptionHealthForSymbol(symbol, normalizedSide);
+  },
+  "bot:getTimeOfDayExecutionTargets": async ([timeOfDay]) => {
+    return getTargetsForPstTime(timeOfDay);
   },
   "bot:getCurrentAllocationBudget": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());

@@ -1,5 +1,6 @@
 import tastytradeApi from "../../core/tastytrade-client";
 import { PositionGroupEvaluation } from "../evaluate-position";
+import { ExecutionTargets } from "../evaluate-trading-strategy";
 import { buildClosingOrderPayload } from "./order-utils";
 
 export interface ClosePositionResult {
@@ -15,11 +16,12 @@ export interface ClosePositionResult {
 export async function closePosition(
   accountNumber: string,
   evaluation: PositionGroupEvaluation,
+  targets: ExecutionTargets,
 ) {
   const results: ClosePositionResult[] = [];
 
   for (const snapshot of evaluation.positionSnapshots) {
-    const order = buildClosingOrderPayload(snapshot, evaluation.strategy);
+    const order = buildClosingOrderPayload(snapshot, targets);
     if (!order) {
       results.push({
         accountNumber,

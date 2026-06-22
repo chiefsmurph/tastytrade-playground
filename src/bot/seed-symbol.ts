@@ -5,7 +5,7 @@ import { getAccountBalanceNumber } from "../core/account-balance";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./actions/order-utils";
-import { ExecutionStrategy } from "./evaluate-trading-strategy";
+import { ProgrammaticAction } from "./evaluate-trading-strategy";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
@@ -25,7 +25,7 @@ export interface SeedSymbolResult {
   placedOrder: boolean;
   side: "call" | "put";
   skippedReason?: string;
-  strategy?: ExecutionStrategy | null;
+  strategy?: ProgrammaticAction | null;
   symbol: string;
   usedDteFallback?: boolean;
 }
@@ -123,8 +123,7 @@ export async function seedSymbol(
   );
   if (
     !strategy ||
-    strategy.action !== "MANAGE_ALLOCATION" ||
-    strategy.targetAccountExposure <= 0
+    strategy !== "MANAGE_ALLOCATION"
   ) {
     return {
       accountNumber: resolvedAccountNumber,

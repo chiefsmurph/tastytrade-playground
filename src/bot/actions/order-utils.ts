@@ -1,6 +1,6 @@
 import { CurrentPosition } from "../../core/types";
 import { PositionQuoteSnapshot } from "../evaluate-position";
-import { ExecutionStrategy } from "../evaluate-trading-strategy";
+import { ExecutionTargets } from "../evaluate-trading-strategy";
 
 export interface OrderLeg {
   action: string;
@@ -63,19 +63,19 @@ export function normalizeInstrumentType(instrumentType: string): string {
 export function getWeightedOrderPrice(
   bid: number,
   ask: number,
-  strategy: Pick<ExecutionStrategy, "bidWeight" | "midWeight" | "askWeight">,
+  targets: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight">,
 ): number {
   const midpoint = bid > 0 && ask > 0 ? (bid + ask) / 2 : ask || bid;
-  const totalWeight = strategy.bidWeight + strategy.midWeight + strategy.askWeight;
+  const totalWeight = targets.bidWeight + targets.midWeight + targets.askWeight;
 
   if (totalWeight <= 0) {
     return midpoint;
   }
 
   return (
-    bid * strategy.bidWeight +
-    midpoint * strategy.midWeight +
-    ask * strategy.askWeight
+    bid * targets.bidWeight +
+    midpoint * targets.midWeight +
+    ask * targets.askWeight
   ) / totalWeight;
 }
 
@@ -85,7 +85,7 @@ export function roundOrderPrice(price: number): string {
 
 export function buildClosingOrderPayload(
   snapshot: PositionQuoteSnapshot,
-  strategy: ExecutionStrategy,
+  targets: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight">,
 ): OrderPayload | null {
   const quantity = getPositionQuantity(snapshot.position);
   if (quantity <= 0) {
@@ -95,7 +95,7 @@ export function buildClosingOrderPayload(
   const price = getWeightedOrderPrice(
     snapshot.currentBidPrice,
     snapshot.currentAskPrice,
-    strategy,
+    targets,
   );
 
   if (!(price > 0)) {

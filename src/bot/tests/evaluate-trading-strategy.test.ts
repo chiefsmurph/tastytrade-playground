@@ -1,0 +1,54 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  getTimeOfDayExecutionTargets,
+  getTimeOfDayExecutionTargetsForPstTime,
+} from "../evaluate-trading-strategy";
+
+test("getTimeOfDayExecutionTargetsForPstTime rejects invalid HH:mm format", () => {
+  assert.throws(
+    () => getTimeOfDayExecutionTargetsForPstTime("25:00"),
+    /Invalid time format/,
+  );
+
+  assert.throws(
+    () => getTimeOfDayExecutionTargetsForPstTime("10:7"),
+    /Invalid time format/,
+  );
+
+  assert.throws(
+    () => getTimeOfDayExecutionTargetsForPstTime("abc"),
+    /Invalid time format/,
+  );
+});
+
+test("getTimeOfDayExecutionTargetsForPstTime matches clock-based target schedule", () => {
+  const fromPstString = getTimeOfDayExecutionTargetsForPstTime("10:14");
+
+  const localClock = new Date();
+  localClock.setHours(10, 14, 0, 0);
+  const fromDateClock = getTimeOfDayExecutionTargets(localClock);
+
+  assert.deepEqual(fromPstString, fromDateClock);
+});
+
+test("getTimeOfDayExecutionTargets boundary at 06:30 is opening target set", () => {
+  const targets = getTimeOfDayExecutionTargetsForPstTime("06:30");
+
+  assert.equal(targets.targetDTE, 30);
+  assert.equal(targets.targetAccountExposure, 0.5);
+  assert.equal(targets.bidWeight, 0.7);
+  assert.equal(targets.midWeight, 0.2);
+  assert.equal(targets.askWeight, 0.1);
+});
+
+test("getTimeOfDayExecutionTargets boundary at 12:30 is fully risk-off", () => {
+  const targets = getTimeOfDayExecutionTargetsForPstTime("12:30");
+
+  assert.equal(targets.targetDTE, 7);
+  assert.equal(targets.targetAccountExposure, 0);
+  assert.equal(targets.bidWeight, 0);
+  assert.equal(targets.midWeight, 0);
+  assert.equal(targets.askWeight, 0);
+});
