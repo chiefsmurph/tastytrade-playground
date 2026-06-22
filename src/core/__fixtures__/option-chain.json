@@ -1,0 +1,38 @@
+{
+  "underlying-symbol": "RUM",
+  "root-symbol": "RUM",
+  "option-chain-type": "Standard",
+  "shares-per-contract": 100,
+  "expirations": [
+    {
+      "expiration-type": "Regular",
+      "expiration-date": "2026-07-17",
+      "days-to-expiration": 28,
+      "settlement-type": "PM",
+      "strikes": [
+        {
+          "strike-price": "10.0",
+          "call": "RUM   260717C00010000",
+          "call-streamer-symbol": "./RUM260717C10",
+          "put": "RUM   260717P00010000",
+          "put-streamer-symbol": "./RUM260717P10",
+          "callDayVolume": 200,
+          "callOpenInterest": 50,
+          "putDayVolume": 140,
+          "putOpenInterest": 25
+        },
+        {
+          "strike-price": "12.0",
+          "call": "RUM   260717C00012000",
+          "call-streamer-symbol": "./RUM260717C12",
+          "put": "RUM   260717P00012000",
+          "put-streamer-symbol": "./RUM260717P12",
+          "callDayVolume": 175,
+          "callOpenInterest": 80,
+          "putDayVolume": 160,
+          "putOpenInterest": 60
+        }
+      ]
+    }
+  ]
+}

@@ -1,8 +1,16 @@
-export type ProgrammaticAction = "MANAGE_ALLOCATION" | "CLOSE_POSITION";
+import { getBotConfig } from "../core/bot-config";
+import { getConfiguredTradingMinutes } from "../core/time";
+
+export type ProgrammaticAction =
+  | "MANAGE_ALLOCATION"
+  | "CLOSE_POSITION"
+  | "LIQUIDATE_POSITION"
+  | "SKIP";
 
 // Unified return structure containing target state goals for the execution loop
 export interface ExecutionStrategy {
   action: ProgrammaticAction;
+  skippedReason?: string;
 }
 
 export interface ExecutionTargets {
@@ -46,6 +54,9 @@ export function applyPositionSizeWeightCaps(
 export interface PositionMetrics {
   currentBidPrice: number;
   currentAskPrice: number;
+  currentReturn?: number;
+  hasValidPricing?: boolean;
+  skippedReason?: string;
   weightedAverageFill: number;   // Our WAF cost basis
   currentTime: Date;             // Current system clock
   lastActionTime: Date;          // When this recommendation first flashed
@@ -56,6 +67,11 @@ interface TimeSchedulePoint {
   value: number;
 }
 
+function parseTimeOfDayMinutes(value: string): number {
+  const [hoursText, minutesText] = value.split(":");
+  return Number(hoursText) * 60 + Number(minutesText);
+}
+
 export function calcTimeBlend(
   currentTime: Date,
   startScore: number,
@@ -63,7 +79,23 @@ export function calcTimeBlend(
   startMinute: number,
   endMinute: number,
 ): number {
-  const currentMinute = currentTime.getHours() * 60 + currentTime.getMinutes();
+  const currentMinute = getConfiguredTradingMinutes(currentTime);
+  return calcMinuteBlend(
+    currentMinute,
+    startScore,
+    endScore,
+    startMinute,
+    endMinute,
+  );
+}
+
+function calcMinuteBlend(
+  currentMinute: number,
+  startScore: number,
+  endScore: number,
+  startMinute: number,
+  endMinute: number,
+): number {
   const minuteSpan = endMinute - startMinute;
 
   if (minuteSpan <= 0) {
@@ -79,14 +111,15 @@ export function calcTimeBlend(
 }
 
 export function getDynamicTakeProfitTarget(currentTime: Date): number {
-  const sixThirtyAM = 6 * 60 + 30;
-  const twelveFiftyFivePM = 12 * 60 + 55;
+  const config = getBotConfig();
+  const marketOpen = parseTimeOfDayMinutes(config.strategy.marketOpenTime);
+  const liquidation = parseTimeOfDayMinutes(config.strategy.liquidationTime);
 
-  return calcTimeBlend(currentTime, 0.4, 0.07, sixThirtyAM, twelveFiftyFivePM);
+  return calcTimeBlend(currentTime, 0.4, 0.07, marketOpen, liquidation);
 }
 
 function getTimeInMinutes(currentTime: Date): number {
-  return currentTime.getHours() * 60 + currentTime.getMinutes();
+  return getConfiguredTradingMinutes(currentTime);
 }
 
 /**
@@ -97,17 +130,31 @@ function getTimeInMinutes(currentTime: Date): number {
 export function evaluateTradingStrategy(metrics: PositionMetrics): ProgrammaticAction {
   const { currentBidPrice, weightedAverageFill, currentTime } = metrics;
 
-  // 1. SYSTEM CLOCK CONVERSIONS (Pacific Standard Time - Minutes from midnight)
+  if (metrics.hasValidPricing === false || metrics.skippedReason) {
+    return "SKIP";
+  }
+
   const timeInMinutes = getTimeInMinutes(currentTime);
 
-  const TWELVE_THIRTY_PM   = 12 * 60 + 30;
-  const TWELVE_FIFTY_FIVE_PM = 12 * 60 + 55;
+  const config = getBotConfig();
+  const allocationCutoff = parseTimeOfDayMinutes(
+    config.strategy.allocationCutoffTime,
+  );
+  const liquidationTime = parseTimeOfDayMinutes(config.strategy.liquidationTime);
 
-  const currentReturn = (currentBidPrice - weightedAverageFill) / weightedAverageFill;
+  const currentReturn =
+    metrics.currentReturn ??
+    (weightedAverageFill > 0
+      ? (currentBidPrice - weightedAverageFill) / weightedAverageFill
+      : Number.NaN);
+
+  if (!Number.isFinite(currentReturn) || weightedAverageFill <= 0) {
+    return "SKIP";
+  }
 
   // 2. HARD CIRCUIT BREAKERS (EOD Liquidation & Risk Floors)
-  if (timeInMinutes >= TWELVE_FIFTY_FIVE_PM) {
-    return "CLOSE_POSITION"; // Liquidate instantly
+  if (timeInMinutes >= liquidationTime) {
+    return "LIQUIDATE_POSITION";
   }
 
   // Take Profit Target Gate
@@ -117,12 +164,12 @@ export function evaluateTradingStrategy(metrics: PositionMetrics): ProgrammaticA
   }
 
   // Absolute Risk Floor Check
-  if (timeInMinutes < TWELVE_THIRTY_PM && currentReturn <= -0.30) {
+  if (timeInMinutes < allocationCutoff && currentReturn <= -0.30) {
     return "CLOSE_POSITION";
   }
 
   // 4. BLOCK ALL NEW ACCUMULATION PAST THE 12:30 PM LINE
-  if (timeInMinutes >= TWELVE_THIRTY_PM) {
+  if (timeInMinutes >= allocationCutoff) {
     if (currentReturn <= -0.10) {
       return "CLOSE_POSITION"; // End-of-day risk compression
     }
@@ -138,57 +185,58 @@ export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTarget
 
 function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): ExecutionTargets {
 
-  const SIX_THIRTY_AM      = 6 * 60 + 30;
+  const config = getBotConfig();
+  const marketOpen = parseTimeOfDayMinutes(config.strategy.marketOpenTime);
   const NINE_AM            = 9 * 60 + 0;
   const TEN_AM             = 10 * 60 + 0;
   const ELEVEN_AM          = 11 * 60 + 0;
   const ELEVEN_THIRTY_AM   = 11 * 60 + 30;
-  const TWELVE_THIRTY_PM   = 12 * 60 + 30;
+  const allocationCutoff = parseTimeOfDayMinutes(config.strategy.allocationCutoffTime);
 
   const targetDTE = Math.round(
     blendBySchedule(timeInMinutes, [
-      { minute: SIX_THIRTY_AM, value: 30 },
+      { minute: marketOpen, value: 30 },
       { minute: NINE_AM, value: 25 },
       { minute: TEN_AM, value: 20 },
       { minute: ELEVEN_AM, value: 14 },
       { minute: ELEVEN_THIRTY_AM, value: 7 },
-      { minute: TWELVE_THIRTY_PM, value: 7 },
+      { minute: allocationCutoff, value: 7 },
     ]),
   );
   const targetAccountExposure = blendBySchedule(timeInMinutes, [
-    { minute: SIX_THIRTY_AM, value: 0.40 },
+    { minute: marketOpen, value: 0.40 },
     { minute: NINE_AM, value: 0.45 },
     { minute: TEN_AM, value: 0.55 },
     { minute: ELEVEN_AM, value: 0.65 },
     { minute: ELEVEN_THIRTY_AM, value: 0.75 },
-    { minute: TWELVE_THIRTY_PM, value: 1.00 },
+    { minute: allocationCutoff, value: 1.00 },
   ]);
   const bidWeight = blendBySchedule(timeInMinutes, [
-    { minute: SIX_THIRTY_AM, value: 0.70 },
+    { minute: marketOpen, value: 0.70 },
     { minute: NINE_AM, value: 0.50 },
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.20 },
     { minute: ELEVEN_THIRTY_AM, value: 0.00 },
-    { minute: TWELVE_THIRTY_PM, value: 0.00 },
+    { minute: allocationCutoff, value: 0.00 },
   ]);
   const midWeight = blendBySchedule(timeInMinutes, [
-    { minute: SIX_THIRTY_AM, value: 0.20 },
+    { minute: marketOpen, value: 0.20 },
     { minute: NINE_AM, value: 0.30 },
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.30 },
     { minute: ELEVEN_THIRTY_AM, value: 0.25 },
-    { minute: TWELVE_THIRTY_PM, value: 0.15 },
+    { minute: allocationCutoff, value: 0.15 },
   ]);
   const askWeight = blendBySchedule(timeInMinutes, [
-    { minute: SIX_THIRTY_AM, value: 0.10 },
+    { minute: marketOpen, value: 0.10 },
     { minute: NINE_AM, value: 0.20 },
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.50 },
     { minute: ELEVEN_THIRTY_AM, value: 0.75 },
-    { minute: TWELVE_THIRTY_PM, value: 0.85 },
+    { minute: allocationCutoff, value: 0.85 },
   ]);
 
-  if (timeInMinutes >= TWELVE_THIRTY_PM) {
+  if (timeInMinutes >= allocationCutoff) {
     return {
       askWeight: 0,
       bidWeight: 0,
@@ -210,6 +258,12 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
 export function getTimeOfDayExecutionTargetsForPstTime(
   timeOfDay?: string,
 ): ExecutionTargets {
+  return getTimeOfDayExecutionTargetsForPacificTime(timeOfDay);
+}
+
+export function getTimeOfDayExecutionTargetsForPacificTime(
+  timeOfDay?: string,
+): ExecutionTargets {
   if (!timeOfDay) {
     return getTimeOfDayExecutionTargets(new Date());
   }
@@ -227,8 +281,13 @@ export function getTimeOfDayExecutionTargetsForPstTime(
 }
 
 export function buildExecutionStrategy(metrics: PositionMetrics): ExecutionStrategy {
+  const action = evaluateTradingStrategy(metrics);
   return {
-    action: evaluateTradingStrategy(metrics),
+    action,
+    skippedReason:
+      action === "SKIP"
+        ? metrics.skippedReason ?? "invalid or incomplete position metrics"
+        : undefined,
   };
 }
 
@@ -260,8 +319,8 @@ function blendBySchedule(
     const endPoint = sortedSchedule[index + 1];
 
     if (currentMinute >= startPoint.minute && currentMinute < endPoint.minute) {
-      return calcTimeBlend(
-        new Date(0, 0, 0, Math.floor(currentMinute / 60), currentMinute % 60),
+      return calcMinuteBlend(
+        currentMinute,
         startPoint.value,
         endPoint.value,
         startPoint.minute,

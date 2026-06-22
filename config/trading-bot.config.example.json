@@ -1,0 +1,75 @@
+{
+  "environment": "sandbox",
+  "profile": "conservative",
+  "profiles": {
+    "conservative": {
+      "strategy": {
+        "allocationPriority": "underweightThenBestReturn",
+        "allowAddingToLosingPositions": false,
+        "maxLossForNewAllocationPct": -0.05,
+        "allowDteFallback": false
+      },
+      "liquidity": {
+        "minDayVolume": 120,
+        "minOpenInterest": 0
+      }
+    },
+    "balanced": {
+      "strategy": {
+        "allocationPriority": "underweightThenBestReturn",
+        "allowAddingToLosingPositions": false,
+        "maxLossForNewAllocationPct": -0.08,
+        "allowDteFallback": false
+      },
+      "liquidity": {
+        "minDayVolume": 80,
+        "minOpenInterest": 0
+      }
+    },
+    "aggressive": {
+      "strategy": {
+        "allocationPriority": "bestReturn",
+        "allowAddingToLosingPositions": true,
+        "maxLossForNewAllocationPct": -0.12,
+        "allowDteFallback": true
+      },
+      "liquidity": {
+        "minDayVolume": 40,
+        "minOpenInterest": 0
+      }
+    }
+  },
+  "liveOrders": {
+    "enabled": false,
+    "requireEnvFlag": true,
+    "alwaysDryRunFirst": true
+  },
+  "strategy": {
+    "timezone": "America/Los_Angeles",
+    "enabledSides": ["call", "put"],
+    "allocationPriority": "underweightThenBestReturn",
+    "allowAddingToLosingPositions": false,
+    "maxLossForNewAllocationPct": -0.05,
+    "allowDteFallback": false,
+    "marketOpenTime": "06:30",
+    "allocationCutoffTime": "12:30",
+    "liquidationTime": "12:55",
+    "costBasisUnit": "perShare"
+  },
+  "liquidity": {
+    "minDayVolume": 120,
+    "minOpenInterest": 0
+  },
+  "liquidation": {
+    "mode": "marketableLimit",
+    "slippageTicks": 2
+  },
+  "scheduler": {
+    "openIntervalMs": 240000,
+    "closedIntervalMs": 60000
+  },
+  "logging": {
+    "redactAccountNumbers": true,
+    "logRawBrokerPayloads": false
+  }
+}

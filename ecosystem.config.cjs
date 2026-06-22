@@ -6,7 +6,7 @@ module.exports = {
       name: "tastytrade-playground",
       cwd: __dirname,
       script: "./build/index.js",
-      interpreter: "/home/deploy/.nvm/versions/node/v24.17.0/bin/node",
+      interpreter: process.env.PM2_NODE_INTERPRETER || "node",
       instances: 1,
       exec_mode: "fork",
       autorestart: true,

@@ -1,7 +1,9 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import {
   chooseOptionCandidates,
+  getOptionCandidateOpenInterest,
   getOptionCandidateVolume,
+  meetsLiquidityRequirement,
   OptionCandidateSelectionOptions,
   resolveCandidateExpirations,
 } from "./option-contracts";
@@ -13,13 +15,17 @@ const DEFAULT_OPTION_HEALTH_DTES = [7, 14, 30] as const;
 export interface TopOptionCandidateForSymbolResult {
   "call-streamer-symbol"?: string;
   call?: string;
+  dayVolume?: number;
   dte?: number;
   maxDTE?: number;
-  meetsVolumeRequirement?: boolean;
+  meetsLiquidityRequirement?: boolean;
   minDTE?: number;
+  openInterest?: number;
+  orderSymbol?: string;
   preferredDTE?: number;
   "put-streamer-symbol"?: string;
   put?: string;
+  quoteSymbol?: string;
   requestedSide: "call" | "put";
   strategy?: ProgrammaticAction;
   streamerSymbol?: string;
@@ -112,13 +118,19 @@ function buildTopOptionCandidateResult(
   const optionCandidates = chooseOptionCandidates(
     optionChain,
     underlyingPrice,
+    side,
     resolvedSelectionOptions,
   ).map((candidate) => ({
     ...candidate,
-    meetsVolumeRequirement: getOptionCandidateVolume(candidate, side) > 40,
+    dayVolume: getOptionCandidateVolume(candidate, side),
+    openInterest: getOptionCandidateOpenInterest(candidate, side),
+    meetsLiquidityRequirement: meetsLiquidityRequirement(candidate),
   }));
+  const liquidCandidates = optionCandidates.filter(
+    (candidate) => candidate.meetsLiquidityRequirement,
+  );
 
-  const sortedCandidates = [...optionCandidates].sort((a, b) => {
+  const sortedCandidates = [...liquidCandidates].sort((a, b) => {
     const aVolume = getOptionCandidateVolume(a, side);
     const bVolume = getOptionCandidateVolume(b, side);
     const aDteDelta = preferredDTE == null ? 0 : Math.abs(Number(a.dte) - preferredDTE);
@@ -211,7 +223,7 @@ export async function getOptionHealthForSymbol(
     (result, targetDTE) => {
       const candidate = targets[String(targetDTE)];
 
-      if (!candidate?.symbol) {
+      if (!candidate?.orderSymbol) {
         result.missingTargets.push(targetDTE);
         return result;
       }

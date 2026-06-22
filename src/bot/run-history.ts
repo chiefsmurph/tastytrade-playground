@@ -24,11 +24,16 @@ export interface RunHistoryEntry {
   accountNumber: string;
   executionSummary: {
     allocationEstimatedTotal: number;
+    allocationFailedCount?: number;
     allocationPlacedCount: number;
     allocationSkippedCount: number;
     cancelledOrderCount: number;
+    closePlacedCount?: number;
     closeOrderCount: number;
+    closeSkippedCount?: number;
+    skippedEvaluationCount?: number;
   };
+  executionError?: string;
   id: string;
   groups: RunGroupReturn[];
   plan: {
@@ -55,6 +60,7 @@ export interface RunHistoryEntry {
 
 interface AppendRunHistoryInput {
   accountNumber: string;
+  executionError?: string;
   executionSummary: RunHistoryEntry["executionSummary"];
   groups: RunHistoryEntry["groups"];
   plan: RunHistoryEntry["plan"];
@@ -80,8 +86,32 @@ export async function appendRunHistory(
   const historyPath = getRunHistoryPath();
   await fs.mkdir(path.dirname(historyPath), { recursive: true });
   await fs.appendFile(historyPath, `${JSON.stringify(entry)}\n`, "utf8");
+  await pruneRunHistory(historyPath);
 
   return entry;
+}
+
+async function pruneRunHistory(historyPath: string): Promise<void> {
+  const maxEntries = Number(process.env.TASTYTRADE_BOT_RUN_HISTORY_MAX_ENTRIES ?? 1000);
+  if (!Number.isFinite(maxEntries) || maxEntries <= 0) {
+    return;
+  }
+
+  const raw = await fs.readFile(historyPath, "utf8");
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length <= maxEntries) {
+    return;
+  }
+
+  await fs.writeFile(
+    historyPath,
+    `${lines.slice(-Math.floor(maxEntries)).join("\n")}\n`,
+    "utf8",
+  );
 }
 
 export async function getRecentRunHistory(limit = 20): Promise<RunHistoryEntry[]> {
@@ -93,7 +123,17 @@ export async function getRecentRunHistory(limit = 20): Promise<RunHistoryEntry[]
   let raw = "";
 
   try {
-    raw = await fs.readFile(historyPath, "utf8");
+    const handle = await fs.open(historyPath, "r");
+    try {
+      const stat = await handle.stat();
+      const maxBytes = 1024 * 1024;
+      const readLength = Math.min(stat.size, maxBytes);
+      const buffer = Buffer.alloc(readLength);
+      await handle.read(buffer, 0, readLength, Math.max(0, stat.size - readLength));
+      raw = buffer.toString("utf8");
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {

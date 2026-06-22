@@ -27,6 +27,15 @@ export function sendIpcRequest(command, args = [], options = {}) {
     const socket = net.createConnection(socketPath);
     let buffer = "";
     let settled = false;
+    const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+      ? Math.max(1, Number(options.timeoutMs))
+      : 30000;
+    const timeout = setTimeout(() => {
+      finish(
+        reject,
+        new Error(`IPC request timed out after ${timeoutMs}ms: ${command}`),
+      );
+    }, timeoutMs);
 
     function finish(callback, value) {
       if (settled) {
@@ -34,6 +43,7 @@ export function sendIpcRequest(command, args = [], options = {}) {
       }
 
       settled = true;
+      clearTimeout(timeout);
       socket.destroy();
       callback(value);
     }

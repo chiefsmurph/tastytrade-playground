@@ -24,12 +24,11 @@ test("getTimeOfDayExecutionTargetsForPstTime rejects invalid HH:mm format", () =
   );
 });
 
-test("getTimeOfDayExecutionTargetsForPstTime matches clock-based target schedule", () => {
+test("getTimeOfDayExecutionTargets uses Pacific clock instead of host timezone", () => {
   const fromPstString = getTimeOfDayExecutionTargetsForPstTime("10:14");
 
-  const localClock = new Date();
-  localClock.setHours(10, 14, 0, 0);
-  const fromDateClock = getTimeOfDayExecutionTargets(localClock);
+  const pacificClock = new Date("2026-06-19T17:14:00.000Z");
+  const fromDateClock = getTimeOfDayExecutionTargets(pacificClock);
 
   assert.deepEqual(fromPstString, fromDateClock);
 });

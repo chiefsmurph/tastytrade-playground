@@ -1,0 +1,32 @@
+[
+  {
+    "account-number": "ACCT-REDACTED-1234",
+    "symbol": "RUM   260717C00010000",
+    "instrument-type": "Equity Option",
+    "underlying-symbol": "RUM",
+    "streamer-symbol": "./RUM260717C10",
+    "quantity": "2",
+    "quantity-direction": "Long",
+    "average-open-price": "1.25",
+    "mark-price": "1.40",
+    "close-price": "1.36",
+    "multiplier": "100",
+    "cost-effect": "Debit",
+    "updated-at": "2026-06-19T16:30:00.000Z"
+  },
+  {
+    "account-number": "ACCT-REDACTED-1234",
+    "symbol": "RUM   260717P00012000",
+    "instrument-type": "Equity Option",
+    "underlying-symbol": "RUM",
+    "streamer-symbol": "./RUM260717P12",
+    "quantity": "1",
+    "quantity-direction": "Short",
+    "average-open-price": "2.00",
+    "mark-price": "1.50",
+    "close-price": "1.55",
+    "multiplier": "100",
+    "cost-effect": "Credit",
+    "updated-at": "2026-06-19T16:35:00.000Z"
+  }
+]

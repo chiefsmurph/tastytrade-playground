@@ -1,8 +1,7 @@
-import tastytradeApi from "./tastytrade-client";
-
 type AnyRecord = Record<string, unknown>;
 
 export interface CurrentEquitiesSession {
+  closeAtExt?: string;
   closesAt?: string;
   isOpen: boolean;
   isRegularSession: boolean;
@@ -56,21 +55,6 @@ function readString(record: AnyRecord | null, keys: string[]): string | undefine
   return undefined;
 }
 
-function readBoolean(record: AnyRecord | null, keys: string[]): boolean | undefined {
-  if (!record) {
-    return undefined;
-  }
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "boolean") {
-      return value;
-    }
-  }
-
-  return undefined;
-}
-
 function parseTimestamp(value: string | undefined): number | undefined {
   if (!value) {
     return undefined;
@@ -80,89 +64,45 @@ function parseTimestamp(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function inferIsOpen(
-  explicitIsOpen: boolean | undefined,
-  sessionLabel: string | undefined,
-  sessionStatus: string | undefined,
+function isBetweenRegularSession(
   opensAt: string | undefined,
   closesAt: string | undefined,
+  now = new Date(),
 ): boolean {
-  if (explicitIsOpen != null) {
-    return explicitIsOpen;
-  }
-
   const opensAtMs = parseTimestamp(opensAt);
   const closesAtMs = parseTimestamp(closesAt);
-  const now = Date.now();
   if (opensAtMs != null && closesAtMs != null) {
-    return now >= opensAtMs && now < closesAtMs;
+    const nowMs = now.getTime();
+    return nowMs >= opensAtMs && nowMs < closesAtMs;
   }
 
-  const combined = `${sessionLabel ?? ""} ${sessionStatus ?? ""}`.toLowerCase();
-  if (!combined.trim()) {
-    return false;
-  }
-
-  if (
-    combined.includes("closed") ||
-    combined.includes("holiday") ||
-    combined.includes("halt")
-  ) {
-    return false;
-  }
-
-  return (
-    combined.includes("regular") ||
-    combined.includes("extended") ||
-    combined.includes("pre") ||
-    combined.includes("post") ||
-    combined.includes("open")
-  );
+  return false;
 }
 
-function inferIsRegularSession(
-  sessionLabel: string | undefined,
-  sessionStatus: string | undefined,
-  opensAt: string | undefined,
-  closesAt: string | undefined,
-): boolean {
-  const combined = `${sessionLabel ?? ""} ${sessionStatus ?? ""}`.toLowerCase();
-  if (combined.includes("regular")) {
-    return true;
-  }
-
-  if (
-    combined.includes("extended") ||
-    combined.includes("pre") ||
-    combined.includes("post")
-  ) {
+function stateAllowsOpen(state: string | undefined): boolean {
+  if (!state) {
     return false;
   }
 
-  const opensAtMs = parseTimestamp(opensAt);
-  const closesAtMs = parseTimestamp(closesAt);
-  if (opensAtMs == null || closesAtMs == null) {
-    return false;
-  }
-
-  const durationMs = closesAtMs - opensAtMs;
-  const durationHours = durationMs / (60 * 60 * 1000);
-  return durationHours <= 7.5;
+  const normalized = state.trim().toLowerCase();
+  return normalized === "open";
 }
 
-export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSession> {
-  const response = await tastytradeApi.httpClient.getData(
-    "/market-time/equities/sessions/current",
-  );
+export function parseCurrentEquitiesSession(
+  response: unknown,
+  now = new Date(),
+): CurrentEquitiesSession {
   const unwrapped = unwrapCurrentSession(extractResponseData(response));
   const sessionRecord = asRecord(unwrapped);
   const sessionLabel = readString(sessionRecord, [
+    "session",
     "session-type",
     "sessionType",
     "type",
     "name",
   ]);
   const sessionStatus = readString(sessionRecord, [
+    "state",
     "session-status",
     "sessionStatus",
     "status",
@@ -170,41 +110,32 @@ export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSessio
     "marketStatus",
   ]);
   const opensAt = readString(sessionRecord, [
-    "opens-at",
-    "opensAt",
+    "open-at",
+    "openAt",
     "start-at",
     "startAt",
-    "begins-at",
-    "beginsAt",
   ]);
   const closesAt = readString(sessionRecord, [
-    "closes-at",
-    "closesAt",
+    "close-at",
+    "closeAt",
     "end-at",
     "endAt",
-    "ends-at",
-    "endsAt",
   ]);
-  const explicitIsOpen = readBoolean(sessionRecord, [
-    "is-open",
-    "isOpen",
-    "open",
+  const closeAtExt = readString(sessionRecord, [
+    "close-at-ext",
+    "closeAtExt",
+    "close_at_ext",
   ]);
-  const isOpen = inferIsOpen(
-    explicitIsOpen,
-    sessionLabel,
-    sessionStatus,
-    opensAt,
-    closesAt,
-  );
-  const isRegularSession = inferIsRegularSession(
-    sessionLabel,
-    sessionStatus,
-    opensAt,
-    closesAt,
-  );
+  const isOpen =
+    stateAllowsOpen(sessionStatus) &&
+    isBetweenRegularSession(opensAt, closesAt, now);
+  const isRegularSession =
+    stateAllowsOpen(sessionStatus) &&
+    parseTimestamp(opensAt) != null &&
+    parseTimestamp(closesAt) != null;
 
   return {
+    closeAtExt,
     closesAt,
     isOpen,
     isRegularSession,
@@ -213,6 +144,14 @@ export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSessio
     sessionLabel,
     sessionStatus,
   };
+}
+
+export async function getCurrentEquitiesSession(): Promise<CurrentEquitiesSession> {
+  const { default: tastytradeApi } = await import("./tastytrade-client");
+  const response = await tastytradeApi.httpClient.getData(
+    "/market-time/equities/sessions/current",
+  );
+  return parseCurrentEquitiesSession(response);
 }
 
 export function isEquityOptionsMarketOpen(session: CurrentEquitiesSession): boolean {

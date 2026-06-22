@@ -1,6 +1,10 @@
+import { MarketDataSubscriptionType } from "./tastytrade-sdk";
+import { getBotConfig } from "./bot-config";
+import { safeJson } from "./logging";
 import tastytradeApi from "./tastytrade-client";
 
 type QuoteEvent = Record<string, any>;
+let quoteStreamerConnectPromise: Promise<void> | null = null;
 
 function toNumber(value: unknown): number | null {
   if (value == null) return null;
@@ -9,7 +13,11 @@ function toNumber(value: unknown): number | null {
 }
 
 function normalizeCandidates(symbol: string): string[] {
-  return [symbol, `.${symbol}`, symbol.replace("/", ".")].filter(Boolean);
+  const normalized = new Set(
+    [symbol, `.${symbol}`, symbol.replace("/", "."), symbol.replace(/^\./, "")]
+      .filter(Boolean),
+  );
+  return Array.from(normalized);
 }
 
 function isMatchingQuoteEvent(event: QuoteEvent, candidates: string[]): boolean {
@@ -77,7 +85,7 @@ async function withQuoteSubscription<T>(
   timeoutMs: number,
   onEvent: (event: QuoteEvent, resolve: (value: T | null) => void) => void,
 ): Promise<T | null> {
-  await tastytradeApi.quoteStreamer.connect();
+  await ensureQuoteStreamerConnected();
 
   const candidates = normalizeCandidates(symbol);
 
@@ -99,7 +107,9 @@ async function withQuoteSubscription<T>(
       (events: any[]) => {
         const arr = Array.isArray(events) ? events : [events];
         for (const event of arr) {
-          console.log("Received quote event:", event);
+          if (getBotConfig().logging.logRawBrokerPayloads) {
+            console.log("Received quote event:", safeJson(event));
+          }
           if (!isMatchingQuoteEvent(event, candidates)) {
             continue;
           }
@@ -110,11 +120,27 @@ async function withQuoteSubscription<T>(
     );
 
     try {
-      tastytradeApi.quoteStreamer.subscribe(candidates);
+      tastytradeApi.quoteStreamer.subscribe(candidates, [
+        MarketDataSubscriptionType.Quote,
+      ]);
     } catch {
       cleanupAndResolve(null);
     }
   });
+}
+
+async function ensureQuoteStreamerConnected(): Promise<void> {
+  if (tastytradeApi.quoteStreamer.dxLinkFeed) {
+    return;
+  }
+
+  quoteStreamerConnectPromise ??= tastytradeApi.quoteStreamer
+    .connect()
+    .finally(() => {
+      quoteStreamerConnectPromise = null;
+    });
+
+  await quoteStreamerConnectPromise;
 }
 
 export async function getBidAskForSymbol(
