@@ -1,8 +1,8 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import {
-  OptionChain,
-  OptionChainWithVolumes,
-  StrikeWithVolumes,
+  TastytradeOptionChain,
+  TastytradeOptionChainWithVolumes,
+  TastytradeStrikeWithVolumes,
 } from "~/core/types";
 
 const MIN_DTE = 28; // 4 weeks
@@ -17,11 +17,11 @@ export interface OptionCandidateSelectionOptions {
 }
 
 export interface CandidateExpirationSelection {
-  expirations: OptionChain["expirations"];
+  expirations: TastytradeOptionChain["expirations"];
   usedDteFallback: boolean;
 }
 
-export interface OptionCandidate extends StrikeWithVolumes {
+export interface OptionCandidate extends TastytradeStrikeWithVolumes {
   dte: number;
   expirationDate: string;
   expirationType: string;
@@ -75,7 +75,7 @@ export async function getOptionCandidates(
 }
 
 export function sortOptionChainByVolume(
-  optionChain: OptionChainWithVolumes,
+  optionChain: TastytradeOptionChainWithVolumes,
   side: "call" | "put" = "call",
 ) {
   const sorted = optionChain.expirations
@@ -92,7 +92,7 @@ export function sortOptionChainByVolume(
 }
 
 export function chooseOptionCandidates(
-  optionChain: OptionChainWithVolumes,
+  optionChain: TastytradeOptionChainWithVolumes,
   underlyingPrice: number,
   selectionOptions: OptionCandidateSelectionOptions = {},
 ): OptionCandidate[] {
@@ -146,7 +146,7 @@ export function chooseOptionCandidates(
 }
 
 export function resolveCandidateExpirations(
-  optionChain: OptionChainWithVolumes,
+  optionChain: TastytradeOptionChainWithVolumes,
   selectionOptions: OptionCandidateSelectionOptions = {},
 ): CandidateExpirationSelection {
   const minDTE = selectionOptions.minDTE ?? MIN_DTE;
@@ -182,8 +182,8 @@ export function resolveCandidateExpirations(
 }
 
 function compareExpirations(
-  a: OptionChain["expirations"][number],
-  b: OptionChain["expirations"][number],
+  a: TastytradeOptionChain["expirations"][number],
+  b: TastytradeOptionChain["expirations"][number],
   preferredDTE: number,
 ) {
   // Prefer regular monthly expirations, then closer to the preferred DTE.

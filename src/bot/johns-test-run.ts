@@ -8,7 +8,7 @@ export default async function johnsTestRun() {
     const accounts =
       await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
     const extractedAccountNumbers = accounts.map(
-      (item: any) => item.account["account-number"],
+      (item) => item.account["account-number"],
     );
     console.log({ accounts, extractedAccountNumbers });
 

@@ -1,4 +1,8 @@
-import type { Order, OrderRequest, PlacedOrderResponse } from "./types";
+import type {
+  OrderRequest,
+  TastytradeOrder,
+  TastytradePlacedOrderResponse,
+} from "./types";
 
 type RawOrderService = {
   postReconfirmOrder(accountNumber: string, orderId: number): Promise<unknown>;
@@ -26,32 +30,32 @@ type RawOrderService = {
 };
 
 export interface TypedOrderService {
-  postReconfirmOrder(accountNumber: string, orderId: number): Promise<PlacedOrderResponse>;
+  postReconfirmOrder(accountNumber: string, orderId: number): Promise<TastytradePlacedOrderResponse>;
   replacementOrderDryRun(
     accountNumber: string,
     orderId: number,
     replacementOrder: Partial<OrderRequest>,
-  ): Promise<PlacedOrderResponse>;
-  getOrder(accountNumber: string, orderId: number): Promise<Order>;
-  cancelOrder(accountNumber: string, orderId: number): Promise<Order>;
+  ): Promise<TastytradePlacedOrderResponse>;
+  getOrder(accountNumber: string, orderId: number): Promise<TastytradeOrder>;
+  cancelOrder(accountNumber: string, orderId: number): Promise<TastytradeOrder>;
   cancelComplexOrder(accountNumber: string, orderId: number): Promise<unknown>;
   replaceOrder(
     accountNumber: string,
     orderId: number,
     replacementOrder: Partial<OrderRequest>,
-  ): Promise<Order>;
+  ): Promise<TastytradeOrder>;
   editOrder(
     accountNumber: string,
     orderId: number,
     order: Partial<OrderRequest>,
-  ): Promise<Order>;
-  getLiveOrders(accountNumber: string): Promise<Order[]>;
-  getOrders(accountNumber: string, queryParams?: object): Promise<Order[]>;
-  createOrder(accountNumber: string, order: OrderRequest): Promise<PlacedOrderResponse>;
-  createComplexOrder(accountNumber: string, order: object): Promise<PlacedOrderResponse>;
-  postOrderDryRun(accountNumber: string, order: OrderRequest): Promise<PlacedOrderResponse>;
-  getLiveOrdersForCustomer(customerId: string): Promise<Order[]>;
-  getCustomerOrders(customerId: string, queryParams?: object): Promise<Order[]>;
+  ): Promise<TastytradeOrder>;
+  getLiveOrders(accountNumber: string): Promise<TastytradeOrder[]>;
+  getOrders(accountNumber: string, queryParams?: object): Promise<TastytradeOrder[]>;
+  createOrder(accountNumber: string, order: OrderRequest): Promise<TastytradePlacedOrderResponse>;
+  createComplexOrder(accountNumber: string, order: object): Promise<TastytradePlacedOrderResponse>;
+  postOrderDryRun(accountNumber: string, order: OrderRequest): Promise<TastytradePlacedOrderResponse>;
+  getLiveOrdersForCustomer(customerId: string): Promise<TastytradeOrder[]>;
+  getCustomerOrders(customerId: string, queryParams?: object): Promise<TastytradeOrder[]>;
 }
 
 export function createTypedOrderService(rawOrderService: RawOrderService): TypedOrderService {
@@ -60,7 +64,7 @@ export function createTypedOrderService(rawOrderService: RawOrderService): Typed
       return (await rawOrderService.postReconfirmOrder(
         accountNumber,
         orderId,
-      )) as PlacedOrderResponse;
+      )) as TastytradePlacedOrderResponse;
     },
     async replacementOrderDryRun(
       accountNumber: string,
@@ -71,13 +75,13 @@ export function createTypedOrderService(rawOrderService: RawOrderService): Typed
         accountNumber,
         orderId,
         replacementOrder,
-      )) as PlacedOrderResponse;
+      )) as TastytradePlacedOrderResponse;
     },
     async getOrder(accountNumber: string, orderId: number) {
-      return (await rawOrderService.getOrder(accountNumber, orderId)) as Order;
+      return (await rawOrderService.getOrder(accountNumber, orderId)) as TastytradeOrder;
     },
     async cancelOrder(accountNumber: string, orderId: number) {
-      return (await rawOrderService.cancelOrder(accountNumber, orderId)) as Order;
+      return (await rawOrderService.cancelOrder(accountNumber, orderId)) as TastytradeOrder;
     },
     async cancelComplexOrder(accountNumber: string, orderId: number) {
       return rawOrderService.cancelComplexOrder(accountNumber, orderId);
@@ -91,44 +95,44 @@ export function createTypedOrderService(rawOrderService: RawOrderService): Typed
         accountNumber,
         orderId,
         replacementOrder,
-      )) as Order;
+      )) as TastytradeOrder;
     },
     async editOrder(
       accountNumber: string,
       orderId: number,
       order: Partial<OrderRequest>,
     ) {
-      return (await rawOrderService.editOrder(accountNumber, orderId, order)) as Order;
+      return (await rawOrderService.editOrder(accountNumber, orderId, order)) as TastytradeOrder;
     },
     async getLiveOrders(accountNumber: string) {
-      return (await rawOrderService.getLiveOrders(accountNumber)) as Order[];
+      return (await rawOrderService.getLiveOrders(accountNumber)) as TastytradeOrder[];
     },
     async getOrders(accountNumber: string, queryParams?: object) {
-      return (await rawOrderService.getOrders(accountNumber, queryParams)) as Order[];
+      return (await rawOrderService.getOrders(accountNumber, queryParams)) as TastytradeOrder[];
     },
     async createOrder(accountNumber: string, order: OrderRequest) {
       return (await rawOrderService.createOrder(
         accountNumber,
         order,
-      )) as PlacedOrderResponse;
+      )) as TastytradePlacedOrderResponse;
     },
     async createComplexOrder(accountNumber: string, order: object) {
       return (await rawOrderService.createComplexOrder(
         accountNumber,
         order,
-      )) as PlacedOrderResponse;
+      )) as TastytradePlacedOrderResponse;
     },
     async postOrderDryRun(accountNumber: string, order: OrderRequest) {
       return (await rawOrderService.postOrderDryRun(
         accountNumber,
         order,
-      )) as PlacedOrderResponse;
+      )) as TastytradePlacedOrderResponse;
     },
     async getLiveOrdersForCustomer(customerId: string) {
-      return (await rawOrderService.getLiveOrdersForCustomer(customerId)) as Order[];
+      return (await rawOrderService.getLiveOrdersForCustomer(customerId)) as TastytradeOrder[];
     },
     async getCustomerOrders(customerId: string, queryParams?: object) {
-      return (await rawOrderService.getCustomerOrders(customerId, queryParams)) as Order[];
+      return (await rawOrderService.getCustomerOrders(customerId, queryParams)) as TastytradeOrder[];
     },
   };
 }

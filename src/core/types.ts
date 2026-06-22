@@ -1,97 +1,120 @@
 // Shared runtime types used across the project
 
-export interface AccountBalance {
-  account_number: string;
-  cash_balance: number;
-  long_equity_value: number;
-  short_equity_value: number;
-  long_derivative_value: number;
-  short_derivative_value: number;
-  long_futures_value: number;
-  short_futures_value: number;
-  long_futures_derivative_value: number;
-  short_futures_derivative_value: number;
-  long_margineable_value: number;
-  short_margineable_value: number;
-  margin_equity: number;
-  equity_buying_power: number;
-  derivative_buying_power: number;
-  day_trading_buying_power: number;
-  futures_margin_requirement: number;
-  available_trading_funds: number;
-  maintenance_requirement: number;
-  maintenance_call_value: number;
-  reg_t_call_value: number;
-  day_trading_call_value: number;
-  day_equity_call_value: number;
-  net_liquidating_value: number;
-  cash_available_to_withdraw: number;
-  day_trade_excess: number;
-  pending_cash: number;
-  pending_cash_effect: string | null;
-  long_cryptocurrency_value: number;
-  short_cryptocurrency_value: number;
-  cryptocurrency_margin_requirement: number;
-  unsettled_cryptocurrency_fiat_amount: number;
-  unsettled_cryptocurrency_fiat_effect: string | null;
-  closed_loop_available_balance: number;
-  equity_offering_margin_requirement: number;
-  long_bond_value: number;
-  bond_margin_requirement: number;
-  snapshot_date: string | Date;
-  reg_t_margin_requirement: number;
-  futures_overnight_margin_requirement: number;
-  futures_intraday_margin_requirement: number;
-  maintenance_excess: number;
-  pending_margin_interest: number;
-  effective_cryptocurrency_buying_power: number;
-  updated_at: string | Date;
-  apex_starting_day_margin_equity?: number | null;
-  buying_power_adjustment?: any;
-  buying_power_adjustment_effect?: any;
-  time_of_day?: any;
+// Tastytrade HTTP payloads use kebab-case keys. Keep explicit wire types so
+// callers can model API responses accurately when needed.
+export interface TastytradeAccountBalance {
+  "account-number": string;
+  "cash-balance": number | string;
+  "long-equity-value": number | string;
+  "short-equity-value": number | string;
+  "long-derivative-value": number | string;
+  "short-derivative-value": number | string;
+  "long-futures-value": number | string;
+  "short-futures-value": number | string;
+  "long-futures-derivative-value": number | string;
+  "short-futures-derivative-value": number | string;
+  "long-margineable-value": number | string;
+  "short-margineable-value": number | string;
+  "margin-equity": number | string;
+  "equity-buying-power": number | string;
+  "derivative-buying-power": number | string;
+  "day-trading-buying-power": number | string;
+  "futures-margin-requirement": number | string;
+  "available-trading-funds": number | string;
+  "maintenance-requirement": number | string;
+  "maintenance-call-value": number | string;
+  "reg-t-call-value": number | string;
+  "day-trading-call-value": number | string;
+  "day-equity-call-value": number | string;
+  "net-liquidating-value": number | string;
+  "cash-available-to-withdraw": number | string;
+  "day-trade-excess": number | string;
+  "pending-cash": number | string;
+  "pending-cash-effect": string | null;
+  "long-cryptocurrency-value": number | string;
+  "short-cryptocurrency-value": number | string;
+  "cryptocurrency-margin-requirement": number | string;
+  "unsettled-cryptocurrency-fiat-amount": number | string;
+  "unsettled-cryptocurrency-fiat-effect": string | null;
+  "closed-loop-available-balance": number | string;
+  "equity-offering-margin-requirement": number | string;
+  "long-bond-value": number | string;
+  "bond-margin-requirement": number | string;
+  "snapshot-date": string;
+  "reg-t-margin-requirement": number | string;
+  "futures-overnight-margin-requirement": number | string;
+  "futures-intraday-margin-requirement": number | string;
+  "maintenance-excess": number | string;
+  "pending-margin-interest": number | string;
+  "effective-cryptocurrency-buying-power": number | string;
+  "updated-at": string;
+  "cash-settle-balance"?: number | string;
+  currency?: string;
+  "fixed-income-security-margin-requirement"?: number | string;
+  "intraday-equities-cash-amount"?: number | string;
+  "intraday-equities-cash-effect"?: string | null;
+  "intraday-futures-cash-amount"?: number | string;
+  "intraday-futures-cash-effect"?: string | null;
+  "long-fixed-income-security-value"?: number | string;
+  "margin-settle-balance"?: number | string;
+  "previous-day-cryptocurrency-fiat-amount"?: number | string;
+  "previous-day-cryptocurrency-fiat-effect"?: string | null;
+  "sma-equity-option-buying-power"?: number | string;
+  "special-memorandum-account-apex-adjustment"?: number | string;
+  "special-memorandum-account-value"?: number | string;
+  "total-settle-balance"?: number | string;
+  "used-derivative-buying-power"?: number | string;
+  "buying-power-adjustment"?: number | string;
+  "buying-power-adjustment-effect"?: string | null;
+  "total-pending-liquidity-pool-rebate"?: number | string;
+  "long-index-derivative-value"?: number | string;
+  "short-index-derivative-value"?: number | string;
+  [key: string]: unknown;
 }
 
-export interface CurrentPosition {
-  account_number: string;
+export interface TastytradeCurrentPosition {
+  "account-number": string;
   symbol: string;
-  instrument_type: string; // e.g. 'Equity', 'Option', etc.
-  underlying_symbol?: string | null;
-  quantity: number;
-  quantity_direction?: string | null; // 'Long' | 'Short'
-  close_price?: number | null;
-  average_open_price?: number | null;
-  multiplier?: number | null;
-  cost_effect?: string | null;
-  is_suppressed?: boolean;
-  is_frozen?: boolean;
-  realized_day_gain?: number | null;
-  realized_today?: number | null;
-  created_at?: string | Date;
-  updated_at?: string | Date;
-  mark?: number | null;
-  mark_price?: number | null;
-  restricted_quantity?: number | null;
-  expires_at?: string | Date | null;
-  fixing_price?: number | null;
-  deliverable_type?: string | null;
-  average_yearly_market_close_price?: number | null;
-  average_daily_market_close_price?: number | null;
-  realized_day_gain_effect?: string | null;
-  realized_day_gain_date?: string | Date | null;
-  realized_today_effect?: string | null;
-  realized_today_date?: string | Date | null;
+  "instrument-type": string;
+  "underlying-symbol"?: string | null;
+  quantity: number | string;
+  "quantity-direction"?: string | null;
+  "close-price"?: number | string | null;
+  "average-open-price"?: number | string | null;
+  multiplier?: number | string | null;
+  "cost-effect"?: string | null;
+  "is-suppressed"?: boolean;
+  "is-frozen"?: boolean;
+  "realized-day-gain"?: number | string | null;
+  "realized-today"?: number | string | null;
+  "created-at"?: string;
+  "updated-at"?: string;
+  mark?: number | string | null;
+  "mark-price"?: number | string | null;
+  "restricted-quantity"?: number | string | null;
+  "expires-at"?: string | null;
+  "fixing-price"?: number | string | null;
+  "deliverable-type"?: string | null;
+  "average-yearly-market-close-price"?: number | string | null;
+  "average-daily-market-close-price"?: number | string | null;
+  "realized-day-gain-effect"?: string | null;
+  "realized-day-gain-date"?: string | null;
+  "realized-today-effect"?: string | null;
+  "realized-today-date"?: string | null;
+  [key: string]: unknown;
 }
+
+export type CurrentPosition = TastytradeCurrentPosition;
 
 export type InstrumentType = 'Equity' | 'Option' | 'Future' | string;
 
 // Option chain types
-export interface TickSize {
+export interface TastytradeTickSize {
   threshold?: string;
   value: string;
 }
 
-export interface Deliverable {
+export interface TastytradeDeliverable {
   id: number;
   amount: string;
   'deliverable-type': string;
@@ -102,7 +125,7 @@ export interface Deliverable {
   symbol: string;
 }
 
-export interface Strike {
+export interface TastytradeStrike {
   'strike-price': string;
   call?: string;
   'call-streamer-symbol'?: string;
@@ -110,44 +133,44 @@ export interface Strike {
   'put-streamer-symbol'?: string;
 }
 
-export interface Expiration {
+export interface TastytradeExpiration {
   'expiration-type': string;
   'expiration-date': string;
   'days-to-expiration': number;
   'settlement-type': string;
-  strikes: Strike[];
+  strikes: TastytradeStrike[];
 }
 
-export interface OptionChain {
+export interface TastytradeOptionChain {
   'underlying-symbol': string;
   'root-symbol': string;
   'option-chain-type': string;
   'shares-per-contract': number;
-  'tick-sizes'?: TickSize[];
-  'deliverables'?: Deliverable[];
-  expirations: Expiration[];
+  'tick-sizes'?: TastytradeTickSize[];
+  'deliverables'?: TastytradeDeliverable[];
+  expirations: TastytradeExpiration[];
 }
 
-export type OptionChains = OptionChain[];
+export type TastytradeOptionChains = TastytradeOptionChain[];
 
 // Volume-augmented variants
-export interface StrikeWithVolumes extends Strike {
+export interface TastytradeStrikeWithVolumes extends TastytradeStrike {
   callVolume?: number;
   putVolume?: number;
   volume?: number; // generic fallback
 }
 
-export interface ExpirationWithVolumes extends Omit<Expiration, 'strikes'> {
-  strikes: StrikeWithVolumes[];
+export interface TastytradeExpirationWithVolumes extends Omit<TastytradeExpiration, 'strikes'> {
+  strikes: TastytradeStrikeWithVolumes[];
 }
 
-export interface OptionChainWithVolumes extends Omit<OptionChain, 'expirations'> {
-  expirations: ExpirationWithVolumes[];
+export interface TastytradeOptionChainWithVolumes extends Omit<TastytradeOptionChain, 'expirations'> {
+  expirations: TastytradeExpirationWithVolumes[];
 }
 
-export type OptionChainsWithVolumes = OptionChainWithVolumes[];
+export type TastytradeOptionChainsWithVolumes = TastytradeOptionChainWithVolumes[];
 
-export interface CustomerAccountResource {
+export interface TastytradeCustomerAccountResource {
   account: {
     "account-number": string;
   };
@@ -191,7 +214,7 @@ export type TastytradeTimeInForce =
   | "GTD"
   | "IOC";
 
-export interface OrderFill {
+export interface TastytradeOrderFill {
   "destination-venue"?: string;
   "ext-exec-id"?: string;
   "ext-group-fill-id"?: string;
@@ -201,23 +224,23 @@ export interface OrderFill {
   quantity?: string | number;
 }
 
-export interface OrderLeg {
+export interface TastytradeOrderLeg {
   action: TastytradeOrderAction;
   "instrument-type": TastytradeInstrumentType;
   quantity?: string | number;
   "remaining-quantity"?: string | number;
   symbol: string;
-  fills?: OrderFill[];
+  fills?: TastytradeOrderFill[];
 }
 
-export interface OrderRuleConditionPriceComponent {
+export interface TastytradeOrderRuleConditionPriceComponent {
   "instrument-type": TastytradeInstrumentType;
   quantity: string | number;
   "quantity-direction": "Long" | "Short";
   symbol: string;
 }
 
-export interface OrderRuleCondition {
+export interface TastytradeOrderRuleCondition {
   id?: string;
   action?: "cancel" | "route" | string;
   comparator?: "gte" | "lte" | string;
@@ -228,18 +251,18 @@ export interface OrderRuleCondition {
   threshold?: number;
   "triggered-at"?: string;
   "triggered-value"?: number;
-  "price-components"?: OrderRuleConditionPriceComponent[];
+  "price-components"?: TastytradeOrderRuleConditionPriceComponent[];
 }
 
-export interface OrderRule {
+export interface TastytradeOrderRule {
   "cancel-at"?: string;
   "cancelled-at"?: string;
   "route-after"?: string;
   "routed-at"?: string;
-  "order-conditions"?: OrderRuleCondition[];
+  "order-conditions"?: TastytradeOrderRuleCondition[];
 }
 
-export interface Order {
+export interface TastytradeOrder {
   id: string;
   "account-number"?: string;
   "cancel-user-id"?: string;
@@ -279,26 +302,26 @@ export interface Order {
   username?: string;
   value?: number;
   "value-effect"?: "Credit" | "Debit" | string;
-  legs?: OrderLeg[];
-  "order-rule"?: OrderRule;
+  legs?: TastytradeOrderLeg[];
+  "order-rule"?: TastytradeOrderRule;
 }
 
-export interface OrderIssue {
+export interface TastytradeOrderIssue {
   code?: string;
   message?: string;
   "preflight-id"?: string;
   url?: string;
 }
 
-export interface PlacedOrderResponse {
+export interface TastytradePlacedOrderResponse {
   "buying-power-effect"?: string;
   "closing-fee-calculation"?: string;
   "fee-calculation"?: string;
-  order?: Order;
+  order?: TastytradeOrder;
   "complex-order"?: unknown;
-  errors?: OrderIssue[];
-  warnings?: OrderIssue[];
-  notes?: OrderIssue[];
+  errors?: TastytradeOrderIssue[];
+  warnings?: TastytradeOrderIssue[];
+  notes?: TastytradeOrderIssue[];
 }
 
 export interface OrderRequestLeg {

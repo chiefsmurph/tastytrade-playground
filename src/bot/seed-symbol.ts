@@ -5,7 +5,7 @@ import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./actions/order-utils";
 import { ProgrammaticAction } from "./evaluate-trading-strategy";
-import type { PlacedOrderResponse } from "~/core/types";
+import type { TastytradePlacedOrderResponse } from "~/core/types";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
@@ -15,13 +15,13 @@ export interface SeedSymbolResult {
   buyingPowerAvailable?: number;
   candidateSymbol?: string;
   dte?: number;
-  dryRunResponse?: PlacedOrderResponse | unknown;
+  dryRunResponse?: TastytradePlacedOrderResponse | unknown;
   estimatedOrderCost?: number;
   maxDTE?: number;
   minDTE?: number;
   preferredDTE?: number;
   quoteSymbol?: string;
-  orderResponse?: PlacedOrderResponse;
+  orderResponse?: TastytradePlacedOrderResponse;
   placedOrder: boolean;
   side: "call" | "put";
   skippedReason?: string;
@@ -241,7 +241,6 @@ export async function seedSymbol(
     );
   const buyingPowerAvailable = getAccountBalanceNumber(
     accountBalance,
-    "derivative_buying_power",
     "derivative-buying-power",
   );
   const estimatedOrderCost = numericLimitPrice * DEFAULT_CONTRACT_MULTIPLIER;
@@ -267,7 +266,7 @@ export async function seedSymbol(
     };
   }
 
-  let dryRunResponse: PlacedOrderResponse;
+  let dryRunResponse: TastytradePlacedOrderResponse;
   try {
     dryRunResponse = await tastytradeApi.orderService.postOrderDryRun(
       resolvedAccountNumber,

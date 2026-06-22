@@ -57,7 +57,6 @@ async function getDerivativeBuyingPower(accountNumber: string): Promise<number> 
 
   return getAccountBalanceNumber(
     accountBalance,
-    "derivative_buying_power",
     "derivative-buying-power",
   );
 }

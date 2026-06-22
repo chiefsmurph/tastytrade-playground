@@ -1,6 +1,6 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import { getAccountBalanceNumber, getEffectiveTotalCapital } from "~/core/account-balance";
-import { AccountBalance } from "~/core/types";
+import { TastytradeAccountBalance } from "~/core/types";
 import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
 import {
@@ -42,7 +42,7 @@ export interface RunCyclePreview {
 }
 
 type RunCycleContext = {
-  accountBalances: AccountBalance;
+  accountBalances: TastytradeAccountBalance;
   completedEvaluations: PositionGroupEvaluation[];
   preview: RunCyclePreview;
   runExecutionTargets: {
@@ -187,14 +187,15 @@ async function getDefaultAccountNumber(): Promise<string> {
 async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleContext> {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
 
-  const accountBalances: AccountBalance =
+  const accountBalances: TastytradeAccountBalance =
     await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
       resolvedAccountNumber,
     );
 
+  console.log(JSON.stringify({ scope: "account-balances", accountNumber: resolvedAccountNumber, accountBalances }, null, 2)); 
+
   const buyingPower = getAccountBalanceNumber(
     accountBalances,
-    "derivative_buying_power",
     "derivative-buying-power",
   );
 

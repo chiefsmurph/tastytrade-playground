@@ -21,7 +21,7 @@ export function getPositionQuantity(position: CurrentPosition): number {
 }
 
 export function isShortPosition(position: CurrentPosition): boolean {
-  const quantityDirection = position.quantity_direction?.toLowerCase();
+  const quantityDirection = String(position["quantity-direction"] ?? "").toLowerCase();
   if (quantityDirection === "short") {
     return true;
   }
@@ -29,7 +29,7 @@ export function isShortPosition(position: CurrentPosition): boolean {
     return false;
   }
 
-  return position.cost_effect?.toLowerCase() === "credit";
+  return String(position["cost-effect"] ?? "").toLowerCase() === "credit";
 }
 
 export function getClosingAction(position: CurrentPosition): TastytradeOrderAction {
@@ -116,7 +116,7 @@ export function buildClosingOrderPayload(
         symbol: snapshot.position.symbol,
         quantity,
         "instrument-type": normalizeInstrumentType(
-          snapshot.position.instrument_type,
+          String(snapshot.position["instrument-type"] ?? ""),
         ),
       },
     ],

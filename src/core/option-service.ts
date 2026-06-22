@@ -1,13 +1,17 @@
 import { getUnderlyingPrice } from "./market-data";
 import tastytradeApi from "./tastytrade-client";
-import { OptionChain, OptionChains, OptionChainWithVolumes } from "./types";
+import {
+  TastytradeOptionChain,
+  TastytradeOptionChains,
+  TastytradeOptionChainWithVolumes,
+} from "./types";
 
 const MAX_VOLUME_SAMPLE_DTE = 50;
 const MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME = 10;
 const MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME = 0.12;
 
-export async function fetchOptionChain(symbol: string): Promise<OptionChain> {
-  const data: OptionChains =
+export async function fetchOptionChain(symbol: string): Promise<TastytradeOptionChain> {
+  const data: TastytradeOptionChains =
     await tastytradeApi.instrumentsService.getNestedOptionChain(symbol);
   if (data.length > 1) {
     console.warn(
@@ -28,9 +32,9 @@ function toNumber(value: string | number | undefined): number {
 }
 
 export function filterOptionChainForVolumeSampling(
-  optionChain: OptionChain,
+  optionChain: TastytradeOptionChain,
   underlyingPrice: number,
-): OptionChain {
+): TastytradeOptionChain {
   const maxStrikeDistance =
     underlyingPrice > 0
       ? underlyingPrice * MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME
@@ -72,7 +76,7 @@ export function filterOptionChainForVolumeSampling(
 }
 
 export async function fetchOptionVolumes(
-  optionChain: OptionChain,
+  optionChain: TastytradeOptionChain,
   sampleMs = 5000,
 ) {
   try {
@@ -227,7 +231,7 @@ export function candidateSymbolsFor(raw: string | undefined) {
 }
 
 export function mergeVolumesIntoChain(
-  chain: OptionChain,
+  chain: TastytradeOptionChain,
   volumes: Record<string, number>,
 ) {
   if (!chain || typeof chain !== "object") return chain;
@@ -273,7 +277,7 @@ export function mergeVolumesIntoChain(
 
   const cloned = JSON.parse(JSON.stringify(chain));
   merge(cloned);
-  return cloned as OptionChainWithVolumes;
+  return cloned as TastytradeOptionChainWithVolumes;
 }
 
 export async function fetchOptionChainWithVolume(symbol: string) {

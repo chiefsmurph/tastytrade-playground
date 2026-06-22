@@ -1,29 +1,25 @@
-import { AccountBalance } from "./types";
+import { TastytradeAccountBalance } from "./types";
 
 export function getAccountBalanceNumber(
-  accountBalance: AccountBalance,
-  snakeCaseKey: keyof AccountBalance,
-  kebabCaseKey: string,
+  accountBalance: TastytradeAccountBalance,
+  key: keyof TastytradeAccountBalance,
 ): number {
   const rawAccountBalance = accountBalance as unknown as Record<string, unknown>;
-  const rawValue =
-    rawAccountBalance[snakeCaseKey as string] ?? rawAccountBalance[kebabCaseKey];
+  const keyString = String(key);
+  const alternateKey = keyString.includes("-")
+    ? keyString
+    : keyString
+        .replace(/_/g, "-")
+        .replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  const rawValue = rawAccountBalance[keyString] ?? rawAccountBalance[alternateKey];
   const parsed = Number(rawValue);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function getSignedPendingCash(accountBalance: AccountBalance): number {
-  const pendingCash = getAccountBalanceNumber(
-    accountBalance,
-    "pending_cash",
-    "pending-cash",
-  );
+export function getSignedPendingCash(accountBalance: TastytradeAccountBalance): number {
+  const pendingCash = getAccountBalanceNumber(accountBalance, "pending-cash");
   const rawAccountBalance = accountBalance as unknown as Record<string, unknown>;
-  const effect = String(
-    rawAccountBalance.pending_cash_effect ??
-      rawAccountBalance["pending-cash-effect"] ??
-      "",
-  ).toLowerCase();
+  const effect = String(rawAccountBalance["pending-cash-effect"] ?? "").toLowerCase();
 
   if (effect === "debit") {
     return -pendingCash;
@@ -32,12 +28,9 @@ export function getSignedPendingCash(accountBalance: AccountBalance): number {
   return pendingCash;
 }
 
-export function getEffectiveTotalCapital(accountBalance: AccountBalance): number {
+export function getEffectiveTotalCapital(accountBalance: TastytradeAccountBalance): number {
   return (
-    getAccountBalanceNumber(
-      accountBalance,
-      "net_liquidating_value",
-      "net-liquidating-value",
-    ) + getSignedPendingCash(accountBalance)
+    getAccountBalanceNumber(accountBalance, "net-liquidating-value") +
+    getSignedPendingCash(accountBalance)
   );
 }

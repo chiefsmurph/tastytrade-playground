@@ -14,7 +14,7 @@ import {
   roundOrderPrice,
 } from "./order-utils";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
-import type { PlacedOrderResponse } from "~/core/types";
+import type { TastytradePlacedOrderResponse } from "~/core/types";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
@@ -23,7 +23,7 @@ export type AllocationRoute = "bid" | "mid" | "ask";
 export interface AllocationRouteResult {
   estimatedOrderValue: number;
   limitPrice: number;
-  orderResponse?: PlacedOrderResponse;
+  orderResponse?: TastytradePlacedOrderResponse;
   placedOrder: boolean;
   quantity: number;
   route: AllocationRoute;
@@ -39,7 +39,7 @@ export interface AllocationExecutionResult {
   estimatedOrderValue?: number;
   maxDTE?: number;
   minDTE?: number;
-  orderResponses?: PlacedOrderResponse[];
+  orderResponses?: TastytradePlacedOrderResponse[];
   placedOrder: boolean;
   preferredDTE?: number;
   quantity?: number;
@@ -414,7 +414,7 @@ export async function manageAllocationForGroup(
     orderResponses: placedRouteOrders
       .map((routeOrder) => routeOrder.orderResponse)
       .filter(
-        (orderResponse): orderResponse is PlacedOrderResponse =>
+        (orderResponse): orderResponse is TastytradePlacedOrderResponse =>
           orderResponse != null,
       ),
     placedOrder: placedRouteOrders.some((routeOrder) => routeOrder.placedOrder),
@@ -474,7 +474,6 @@ export async function getCurrentAllocationBudget(
   return buildInitialBudget(
     getAccountBalanceNumber(
       accountBalance,
-      "derivative_buying_power",
       "derivative-buying-power",
     ),
     getEffectiveTotalCapital(accountBalance),

@@ -5,10 +5,11 @@ import type { getBidAskForSymbol as GetBidAskForSymbol, getUnderlyingPrice as Ge
 import type { fetchOptionChain as FetchOptionChain, fetchOptionChainWithVolume as FetchOptionChainWithVolume } from "./option-service";
 import type { cancelAllLiveOrders as CancelAllLiveOrders } from "~/bot/execute-position-evaluations";
 import type {
-  AccountBalance,
   CurrentPosition,
-  CustomerAccountResource,
-  OptionChains,
+  TastytradeCustomerAccountResource,
+  TastytradeOptionChains,
+  TastytradeAccountBalance,
+  TastytradeCurrentPosition,
 } from "./types";
 
 config();
@@ -24,16 +25,16 @@ const rawTastytradeApi = new TastytradeClient({
 type RawTastytradeClient = InstanceType<typeof TastytradeClient>;
 
 type TypedAccountsAndCustomersService = {
-  getCustomerAccounts(): Promise<CustomerAccountResource[]>;
+  getCustomerAccounts(): Promise<TastytradeCustomerAccountResource[]>;
 } & RawTastytradeClient["accountsAndCustomersService"];
 
 type TypedBalancesAndPositionsService = {
   getPositionsList(accountNumber: string): Promise<CurrentPosition[]>;
-  getAccountBalanceValues(accountNumber: string): Promise<AccountBalance>;
+  getAccountBalanceValues(accountNumber: string): Promise<TastytradeAccountBalance>;
 } & RawTastytradeClient["balancesAndPositionsService"];
 
 type TypedInstrumentsService = {
-  getNestedOptionChain(symbol: string): Promise<OptionChains>;
+  getNestedOptionChain(symbol: string): Promise<TastytradeOptionChains>;
 } & RawTastytradeClient["instrumentsService"];
 
 type TypedOrderServiceWithRaw = TypedOrderService & RawTastytradeClient["orderService"];
@@ -68,6 +69,72 @@ export type TypedTastytradeClient = Omit<
 };
 
 const tastytradeApi = rawTastytradeApi as unknown as TypedTastytradeClient;
+
+function coerceNumericString(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return value;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : value;
+}
+
+function normalizeTopLevelApiRecord(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(record)) {
+    const normalizedValue = coerceNumericString(value);
+    normalized[key] = normalizedValue;
+
+    const camelCaseKey = key
+      .replace(/[-_]+([a-zA-Z0-9])/g, (_, c: string) => c.toUpperCase())
+      .replace(/^([A-Z])/, (c) => c.toLowerCase());
+    normalized[camelCaseKey] = normalizedValue;
+  }
+
+  return normalized;
+}
+
+const rawGetPositionsList =
+  tastytradeApi.balancesAndPositionsService.getPositionsList.bind(
+    tastytradeApi.balancesAndPositionsService,
+  );
+
+const rawGetAccountBalanceValues =
+  tastytradeApi.balancesAndPositionsService.getAccountBalanceValues.bind(
+    tastytradeApi.balancesAndPositionsService,
+  );
+
+tastytradeApi.balancesAndPositionsService.getPositionsList = async (
+  accountNumber: string,
+) => {
+  const positions =
+    await rawGetPositionsList(accountNumber) as unknown as TastytradeCurrentPosition[];
+
+  return positions.map((position) =>
+    normalizeTopLevelApiRecord(
+      position as unknown as Record<string, unknown>,
+    ) as unknown as CurrentPosition,
+  );
+};
+
+tastytradeApi.balancesAndPositionsService.getAccountBalanceValues = async (
+  accountNumber: string,
+) => {
+  const accountBalance =
+    await rawGetAccountBalanceValues(accountNumber) as unknown as TastytradeAccountBalance;
+
+  return normalizeTopLevelApiRecord(
+    accountBalance as unknown as Record<string, unknown>,
+  ) as unknown as TastytradeAccountBalance;
+};
 
 tastytradeApi.johnsService = {
   async getBidAskForSymbol(...args) {

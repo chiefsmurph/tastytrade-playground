@@ -27,7 +27,7 @@ export interface PositionGroupEvaluation {
 }
 
 export function getUnderlyingSymbolForPosition(position: CurrentPosition): string {
-  return position.underlying_symbol?.trim() || position.symbol;
+  return (position["underlying-symbol"] as string | null | undefined)?.trim() || position.symbol;
 }
 
 export function groupPositionsByUnderlying(
@@ -64,13 +64,13 @@ async function createPositionQuoteSnapshot(
     3000,
   );
   const currentBidPrice =
-    bidAsk?.bid ?? (position.mark_price ?? position.close_price ?? 0);
+    bidAsk?.bid ?? ((position["mark-price"] as number | undefined) ?? (position["close-price"] as number | undefined) ?? 0);
   const currentAskPrice =
     bidAsk?.ask ??
-    (position.mark_price ?? position.close_price ?? currentBidPrice);
+    ((position["mark-price"] as number | undefined) ?? (position["close-price"] as number | undefined) ?? currentBidPrice);
   const weightedAverageFill =
-    position.average_open_price ??
-    position.average_daily_market_close_price ??
+    (position["average-open-price"] as number | undefined) ??
+    (position["average-daily-market-close-price"] as number | undefined) ??
     currentBidPrice;
 
   return {
@@ -79,7 +79,7 @@ async function createPositionQuoteSnapshot(
     currentAskPrice,
     weightedAverageFill,
     quantityWeight: getPositionQuantityWeight(position),
-    lastActionTime: position.updated_at ? new Date(position.updated_at) : new Date(),
+    lastActionTime: position["updated-at"] ? new Date(String(position["updated-at"])) : new Date(),
   };
 }
 

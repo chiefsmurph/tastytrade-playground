@@ -3,7 +3,7 @@ import {
   getEffectiveTotalCapital,
 } from "~/core/account-balance";
 import tastytradeApi from "~/core/tastytrade-client";
-import { AccountBalance, Order } from "~/core/types";
+import { TastytradeAccountBalance, TastytradeOrder } from "~/core/types";
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   ExecutionTargets,
@@ -21,7 +21,7 @@ import { getDefaultAccountNumber } from "../ipc-server";
 export interface CancelOrderResult {
   cancelled: boolean;
   orderId: number;
-  response?: Order;
+  response?: TastytradeOrder;
   skippedReason?: string;
 }
 
@@ -79,7 +79,7 @@ export async function cancelAllLiveOrders(
 
 export async function executePositionEvaluations(
   accountNumber: string,
-  accountBalance: AccountBalance,
+  accountBalance: TastytradeAccountBalance,
   evaluations: PositionGroupEvaluation[],
   runExecutionTargets?: ExecutionTargets,
 ): Promise<PositionEvaluationExecutionResult> {
@@ -126,7 +126,6 @@ export async function executePositionEvaluations(
   let budget = buildInitialBudget(
     getAccountBalanceNumber(
       accountBalance,
-      "derivative_buying_power",
       "derivative-buying-power",
     ),
     getEffectiveTotalCapital(accountBalance),
