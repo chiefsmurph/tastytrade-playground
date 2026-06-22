@@ -1,0 +1,3 @@
+# This is a stock bidding / buying program
+
+Enter text here...
