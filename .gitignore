@@ -20,6 +20,9 @@ logs/
 *.log
 .npm/
 
+# Local runtime data
+data/runs.ndjson
+
 # TypeScript
 .tsbuildinfo
 

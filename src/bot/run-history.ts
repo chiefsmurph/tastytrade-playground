@@ -37,6 +37,7 @@ export interface RunHistoryEntry {
     totalEstimatedCost: number;
   };
   snapshot: {
+    dynamicTakeProfitTarget: number;
     currentExposurePct: number;
     currentExposureValue: number;
     routeWeights: {

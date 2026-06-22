@@ -3,7 +3,10 @@ import { getAccountBalanceNumber, getEffectiveTotalCapital } from "../core/accou
 import { AccountBalance } from "../core/types";
 import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
-import { getTimeOfDayExecutionTargets } from "./evaluate-trading-strategy";
+import {
+  getDynamicTakeProfitTarget,
+  getTimeOfDayExecutionTargets,
+} from "./evaluate-trading-strategy";
 import { setLastBotRunState } from "./last-run-state";
 import { appendRunHistory, RunGroupReturn, RunHistoryEntry, RunPlanRow } from "./run-history";
 import {
@@ -22,6 +25,7 @@ export interface RunCyclePreview {
     totalEstimatedCost: number;
   };
   snapshot: {
+    dynamicTakeProfitTarget: number;
     currentExposurePct: number;
     currentExposureValue: number;
     routeWeights: {
@@ -66,6 +70,7 @@ function logRunSnapshot(preview: RunCyclePreview): void {
     `Target Exposure:  ${formatPercent(preview.snapshot.targetExposurePct)} (${formatCurrency(preview.snapshot.targetExposureValue)} of ${formatCurrency(preview.snapshot.totalCapital)})`,
   );
   console.log(`Target DTE:       ${preview.snapshot.targetDTE}`);
+  console.log(`Take Profit:      ${formatPercent(preview.snapshot.dynamicTakeProfitTarget)}`);
   console.log(
     `Route Weights:    bid=${preview.snapshot.routeWeights.bid.toFixed(2)} mid=${preview.snapshot.routeWeights.mid.toFixed(2)} ask=${preview.snapshot.routeWeights.ask.toFixed(2)}`,
   );
@@ -194,7 +199,9 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
 
   const completedEvaluations = await getPositionEvaluations(resolvedAccountNumber);
   const groupReturns = computeGroupReturns(completedEvaluations);
-  const runExecutionTargets = getTimeOfDayExecutionTargets(new Date());
+  const currentTime = new Date();
+  const runExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
+  const dynamicTakeProfitTarget = getDynamicTakeProfitTarget(currentTime);
 
   const startingBudget = buildInitialBudget(
     buyingPower,
@@ -263,6 +270,7 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
         totalEstimatedCost: plannedRows.reduce((sum, row) => sum + row.estimatedCost, 0),
       },
       snapshot: {
+        dynamicTakeProfitTarget,
         currentExposurePct,
         currentExposureValue: startingBudget.portfolioExposure,
         routeWeights: {
