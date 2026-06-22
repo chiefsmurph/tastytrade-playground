@@ -1,13 +1,14 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import { CurrentPosition } from "~/core/types";
-import { getAccountBalanceNumber } from "~/core/account-balance";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./actions/order-utils";
 import { ProgrammaticAction } from "./evaluate-trading-strategy";
 import type { TastytradePlacedOrderResponse } from "~/core/types";
+import { getEffectiveBuyingPowerSummary } from "./effective-buying-power";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
+const DEFAULT_MAX_SEED_ORDER_COST = 500;
 
 export interface SeedSymbolResult {
   accountNumber: string;
@@ -28,6 +29,20 @@ export interface SeedSymbolResult {
   strategy?: ProgrammaticAction | null;
   symbol: string;
   usedDteFallback?: boolean;
+}
+
+function getMaxSeedOrderCost(): number {
+  const raw = process.env.BOT_MAX_SEED_ORDER_COST;
+  if (!raw) {
+    return DEFAULT_MAX_SEED_ORDER_COST;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_SEED_ORDER_COST;
+  }
+
+  return parsed;
 }
 
 function extractDryRunSkipReason(error: unknown): string {
@@ -235,15 +250,33 @@ export async function seedSymbol(
     ],
   };
 
-  const accountBalance =
-    await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
-      resolvedAccountNumber,
-    );
-  const buyingPowerAvailable = getAccountBalanceNumber(
-    accountBalance,
-    "derivative-buying-power",
+  const buyingPowerSummary = await getEffectiveBuyingPowerSummary(
+    resolvedAccountNumber,
   );
+  const buyingPowerAvailable = buyingPowerSummary.effectiveBuyingPower;
   const estimatedOrderCost = numericLimitPrice * DEFAULT_CONTRACT_MULTIPLIER;
+  const maxSeedOrderCost = getMaxSeedOrderCost();
+
+  if (estimatedOrderCost > maxSeedOrderCost) {
+    return {
+      accountNumber: resolvedAccountNumber,
+      askPrice,
+      buyingPowerAvailable,
+      candidateSymbol,
+      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      estimatedOrderCost,
+      maxDTE,
+      minDTE,
+      placedOrder: false,
+      preferredDTE,
+      quoteSymbol,
+      side,
+      skippedReason: `seed order cost ${estimatedOrderCost.toFixed(2)} exceeds BOT_MAX_SEED_ORDER_COST ${maxSeedOrderCost.toFixed(2)}`,
+      strategy,
+      symbol: normalizedSymbol,
+      usedDteFallback,
+    };
+  }
 
   if (estimatedOrderCost > buyingPowerAvailable) {
     return {
@@ -259,7 +292,8 @@ export async function seedSymbol(
       preferredDTE,
       quoteSymbol,
       side,
-      skippedReason: "insufficient derivative buying power for seed order",
+      skippedReason:
+        "insufficient effective buying power for seed order at current time-of-day exposure target",
       strategy,
       symbol: normalizedSymbol,
       usedDteFallback,

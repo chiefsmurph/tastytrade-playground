@@ -1,6 +1,6 @@
-import { getAccountBalanceNumber } from "~/core/account-balance";
 import tastytradeApi from "~/core/tastytrade-client";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
+import { getEffectiveBuyingPowerSummary } from "./effective-buying-power";
 import {
   allocateContractsByWeight,
   AllocationRouteResult,
@@ -47,18 +47,6 @@ async function getDefaultAccountNumber(): Promise<string> {
   }
 
   return accountNumber;
-}
-
-async function getDerivativeBuyingPower(accountNumber: string): Promise<number> {
-  const accountBalance =
-    await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
-      accountNumber,
-    );
-
-  return getAccountBalanceNumber(
-    accountBalance,
-    "derivative-buying-power",
-  );
 }
 
 export async function purchaseSymbol(
@@ -135,8 +123,13 @@ export async function purchaseSymbol(
     };
   }
 
-  const buyingPowerAvailable = await getDerivativeBuyingPower(resolvedAccountNumber);
-  const effectiveBudget = Math.min(requestedBudget, Math.max(0, buyingPowerAvailable));
+  const buyingPowerSummary = await getEffectiveBuyingPowerSummary(
+    resolvedAccountNumber,
+  );
+  const effectiveBudget = Math.min(
+    requestedBudget,
+    buyingPowerSummary.effectiveBuyingPower,
+  );
 
   if (effectiveBudget <= 0) {
     return {
@@ -152,7 +145,8 @@ export async function purchaseSymbol(
       requestedBudget,
       routeOrders: [],
       side,
-      skippedReason: "insufficient derivative buying power",
+      skippedReason:
+        "insufficient effective buying power for current time-of-day exposure target",
       symbol: normalizedSymbol,
       totalEstimatedOrderValue: 0,
       totalQuantity: 0,

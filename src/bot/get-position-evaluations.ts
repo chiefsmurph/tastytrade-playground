@@ -1,5 +1,4 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { CurrentPosition } from "~/core/types";
 import {
   evaluatePositionGroup,
   groupPositionsByUnderlying,
@@ -13,6 +12,8 @@ export async function getPositionEvaluations(
     await tastytradeApi.balancesAndPositionsService.getPositionsList(
       accountNumber,
     );
+
+  console.log({ currentPositions })
 
   const groupedPositions = groupPositionsByUnderlying(currentPositions);
   const groupedEvaluations = await Promise.all(

@@ -31,6 +31,12 @@ export interface RunCyclePreview {
   accountNumber: string;
   groups: RunGroupReturn[];
   plan: {
+    diagnostics: {
+      currentReturnPct: number;
+      skippedReason: string;
+      strategyAction: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
+      underlyingSymbol: string;
+    }[];
     rows: RunPlanRow[];
     totalContracts: number;
     totalEstimatedCost: number;
@@ -48,6 +54,10 @@ export interface RunCyclePreview {
     targetExposurePct: number;
     targetExposureValue: number;
     totalCapital: number;
+  };
+  strategySummary: {
+    closePositionCount: number;
+    manageAllocationCount: number;
   };
 }
 
@@ -93,9 +103,22 @@ function logRunSnapshot(preview: RunCyclePreview): void {
 function logRunPlan(preview: RunCyclePreview): void {
   console.log("\n================= RUN PLAN =================");
   console.log(`Account: ${preview.accountNumber}`);
+  console.log(
+    `Strategy groups: manage=${preview.strategySummary.manageAllocationCount} close=${preview.strategySummary.closePositionCount}`,
+  );
 
   if (preview.plan.rows.length === 0) {
     console.log("No allocation orders planned for this cycle.");
+
+    if (preview.plan.diagnostics.length > 0) {
+      console.log("Planning diagnostics:");
+      for (const item of preview.plan.diagnostics) {
+        console.log(
+          `- ${item.underlyingSymbol}: ${item.skippedReason} (currentReturn=${formatPercent(item.currentReturnPct)})`,
+        );
+      }
+    }
+
     console.log("============================================\n");
     return;
   }
@@ -271,6 +294,7 @@ async function buildRunCycleContext(
     .sort((a, b) => a.currentReturn - b.currentReturn);
 
   const plannedRows: RunPlanRow[] = [];
+  const planDiagnostics: RunCyclePreview["plan"]["diagnostics"] = [];
 
   let planningBudget = startingBudget;
   for (const [index, evaluation] of plannedManageEvaluations.entries()) {
@@ -299,6 +323,22 @@ async function buildRunCycleContext(
       });
     }
 
+    const plannedQuantity = planResult.routeOrders.reduce(
+      (sum, routeOrder) => sum + routeOrder.quantity,
+      0,
+    );
+
+    if (plannedQuantity < 1) {
+      planDiagnostics.push({
+        currentReturnPct: evaluation.currentReturn,
+        skippedReason:
+          planResult.skippedReason ??
+          "allocated quantity rounded to zero for all routes",
+        strategyAction: evaluation.strategy.action,
+        underlyingSymbol: evaluation.underlyingSymbol,
+      });
+    }
+
     planningBudget = getUpdatedBudgetAfterAllocation(
       planningBudget,
       evaluation,
@@ -316,6 +356,7 @@ async function buildRunCycleContext(
       accountNumber: resolvedAccountNumber,
       groups: groupReturns,
       plan: {
+        diagnostics: planDiagnostics,
         rows: plannedRows,
         totalContracts: plannedRows.reduce((sum, row) => sum + row.quantity, 0),
         totalEstimatedCost: plannedRows.reduce(
@@ -336,6 +377,14 @@ async function buildRunCycleContext(
         targetExposurePct: runExecutionTargets.targetAccountExposure,
         targetExposureValue,
         totalCapital: startingBudget.totalCapital,
+      },
+      strategySummary: {
+        closePositionCount: completedEvaluations.filter(
+          (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
+        ).length,
+        manageAllocationCount: completedEvaluations.filter(
+          (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
+        ).length,
       },
     },
     runExecutionTargets,

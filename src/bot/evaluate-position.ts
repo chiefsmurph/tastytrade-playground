@@ -74,8 +74,13 @@ async function createPositionQuoteSnapshot(
     ? averageDailyClosePrice
     : undefined;
 
+  const quoteLookupSymbol =
+    (position["streamer-symbol"] as string | undefined) ||
+    (position["quote-symbol"] as string | undefined) ||
+    position.symbol;
+
   const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
-    position.symbol,
+    quoteLookupSymbol,
     3000,
   );
   const currentBidPrice =
