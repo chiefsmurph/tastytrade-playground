@@ -1,4 +1,5 @@
-import tastytradeApi from "~/core/tastytrade-client";
+import { getUnderlyingPrice } from "../core/market-data";
+import { fetchOptionChainWithVolume } from "../core/option-service";
 import {
   chooseOptionCandidates,
   getOptionCandidateOpenInterest,
@@ -102,9 +103,7 @@ function getResolvedSelectionOptions(
 function buildTopOptionCandidateResult(
   symbol: string,
   side: "call" | "put",
-  optionChain: Awaited<
-    ReturnType<typeof tastytradeApi.johnsService.fetchOptionChainWithVolume>
-  >,
+  optionChain: Awaited<ReturnType<typeof fetchOptionChainWithVolume>>,
   underlyingPrice: number,
   targetDTE?: number,
   selectionOptions?: OptionCandidateSelectionOptions,
@@ -177,12 +176,8 @@ export async function getTopOptionCandidateForSymbol(
   targetDTE?: number,
   selectionOptions?: OptionCandidateSelectionOptions,
 ): Promise<TopOptionCandidateForSymbolResult | undefined> {
-  const optionChain = await tastytradeApi.johnsService.fetchOptionChainWithVolume(
-    symbol,
-  );
-  const underlyingPrice = await tastytradeApi.johnsService.getUnderlyingPrice(
-    symbol,
-  );
+  const optionChain = await fetchOptionChainWithVolume(symbol);
+  const underlyingPrice = await getUnderlyingPrice(symbol);
   return buildTopOptionCandidateResult(
     symbol,
     side,
@@ -198,12 +193,8 @@ export async function getOptionHealthForSymbol(
   side: "call" | "put" = "call",
   targetDTEs: readonly number[] = DEFAULT_OPTION_HEALTH_DTES,
 ): Promise<OptionHealthForSymbolResult> {
-  const optionChain = await tastytradeApi.johnsService.fetchOptionChainWithVolume(
-    symbol,
-  );
-  const underlyingPrice = await tastytradeApi.johnsService.getUnderlyingPrice(
-    symbol,
-  );
+  const optionChain = await fetchOptionChainWithVolume(symbol);
+  const underlyingPrice = await getUnderlyingPrice(symbol);
   const resolvedUnderlyingPrice = underlyingPrice?.underlyingPrice || 0;
   const normalizedSymbol = symbol.toUpperCase();
 
