@@ -12,7 +12,7 @@ import {
 import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "./bot/evaluate-trading-strategy";
 import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
-import everyFourMinutes from "./bot/every-four-minutes";
+import runBotCycle, { getRunCyclePreview } from "./bot/run-cycle";
 import { cancelAllLiveOrders } from "./bot/execute-position-evaluations";
 import seedSymbol from "./bot/seed-symbol";
 import {
@@ -100,8 +100,10 @@ const commandHandlers: Record<string, CommandHandler> = {
     return seedSymbol(symbol, normalizedSide, accountNumber);
   },
   "bot:johnsTestRun": johnsTestRun,
-  "bot:everyFourMinutes": everyFourMinutes,
-  "bot:getLastEveryFourMinutesRun": async () => getLastBotRunState(),
+  "bot:runCycle": async ([accountNumber]) => runBotCycle(accountNumber),
+  "bot:getRunCyclePreview": async ([accountNumber]) =>
+    getRunCyclePreview(accountNumber),
+  "bot:getLastRunCycle": async () => getLastBotRunState(),
   "bot:getRecentRunHistory": async ([limit]) => {
     const parsedLimit = limit ? Number(limit) : 20;
     return getRecentRunHistory(parsedLimit);

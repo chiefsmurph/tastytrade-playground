@@ -29,6 +29,8 @@ Required `.env` values (from `.env.example`):
 Optional runtime env values:
 
 - `TASTYTRADE_BOT_SOCKET` (override IPC socket path)
+- `BOT_RUN_INTERVAL_MS` (scheduler run interval in milliseconds while market is open)
+- `BOT_RUN_INTERVAL_MINUTES` (scheduler run interval in minutes; used when `BOT_RUN_INTERVAL_MS` is unset)
 
 3. Type-check the project:
 
@@ -102,6 +104,14 @@ Pass `HH:mm` in Pacific time.
 node run bot:getRecentRunHistory 20
 ```
 
+```bash
+node run bot:getRunCyclePreview
+```
+
+```bash
+node run bot:runCycle
+```
+
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
@@ -113,7 +123,9 @@ Supported IPC commands
 - `bot:getCurrentAllocationBudget [accountNumber]`
 - `bot:getTimeOfDayExecutionTargets <HH:mm>`
 - `bot:getRecentRunHistory [limit]`
-- `bot:everyFourMinutes`
+- `bot:getRunCyclePreview [accountNumber]`
+- `bot:runCycle [accountNumber]`
+- `bot:getLastRunCycle`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`
 - `bot:getMarketOpenSchedulerStatus`
@@ -169,5 +181,6 @@ Notes
 - If the client cannot connect, start or restart the IPC server with `npm run start:tsx`.
 - The Tastytrade calls depend on the values in `.env`.
 - The socket path can be overridden with `TASTYTRADE_BOT_SOCKET`.
+- Open-market scheduler run interval can be customized with `BOT_RUN_INTERVAL_MS` or `BOT_RUN_INTERVAL_MINUTES`.
 - Run history path can be overridden with `TASTYTRADE_BOT_RUN_HISTORY_PATH` (default: `data/runs.ndjson`).
 - Source imports use extensionless TypeScript paths because runtime execution goes through `tsx` with bundler-style resolution.
