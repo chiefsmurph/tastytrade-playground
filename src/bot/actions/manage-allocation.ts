@@ -350,7 +350,7 @@ export async function manageAllocationForGroup(
   }
 
   const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
-    candidate.symbol,
+    candidate.quoteSymbol ?? candidate.streamerSymbol ?? candidate.symbol,
     3000,
   );
   const bid = bidAsk?.bid ?? 0;
