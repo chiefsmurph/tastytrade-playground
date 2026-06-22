@@ -9,6 +9,7 @@ import {
 const MAX_VOLUME_SAMPLE_DTE = 50;
 const MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME = 10;
 const MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME = 0.12;
+const MANDATORY_ITM_STRIKES_PER_EXPIRATION = 3;
 
 export async function fetchOptionChain(symbol: string): Promise<TastytradeOptionChain> {
   const data: TastytradeOptionChains =
@@ -29,6 +30,29 @@ function toNumber(value: string | number | undefined): number {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pickMandatoryCandidateStrikes(
+  strikes: TastytradeOptionChain["expirations"][number]["strikes"],
+  underlyingPrice: number,
+) {
+  if (underlyingPrice <= 0 || strikes.length === 0) {
+    return [];
+  }
+
+  const sortedByStrike = [...strikes].sort(
+    (left, right) =>
+      toNumber(left["strike-price"]) - toNumber(right["strike-price"]),
+  );
+  const itm = sortedByStrike.filter(
+    (strike) => toNumber(strike["strike-price"]) < underlyingPrice,
+  );
+
+  if (itm.length === 0) {
+    return [];
+  }
+
+  return itm.slice(-MANDATORY_ITM_STRIKES_PER_EXPIRATION);
 }
 
 export function filterOptionChainForVolumeSampling(
@@ -52,9 +76,9 @@ export function filterOptionChainForVolumeSampling(
           const strikePrice = toNumber(strike["strike-price"]);
           return Math.abs(strikePrice - underlyingPrice) <= maxStrikeDistance;
         });
-        const candidateStrikes =
+        const candidateStrikesByDistance =
           strikesWithinBand.length > 0 ? strikesWithinBand : expiration.strikes;
-        const strikes = [...candidateStrikes]
+        const cappedByDistance = [...candidateStrikesByDistance]
           .sort((left, right) => {
             const leftDistance = Math.abs(
               toNumber(left["strike-price"]) - underlyingPrice,
@@ -65,6 +89,18 @@ export function filterOptionChainForVolumeSampling(
             return leftDistance - rightDistance;
           })
           .slice(0, MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME);
+        const mandatoryCandidateStrikes = pickMandatoryCandidateStrikes(
+          expiration.strikes,
+          underlyingPrice,
+        );
+        const strikes = Array.from(
+          new Map(
+            [...cappedByDistance, ...mandatoryCandidateStrikes].map((strike) => [
+              strike["strike-price"],
+              strike,
+            ]),
+          ).values(),
+        );
 
         return {
           ...expiration,
@@ -73,6 +109,41 @@ export function filterOptionChainForVolumeSampling(
       })
       .filter((expiration) => expiration.strikes.length > 0),
   };
+}
+
+export function buildMandatoryCandidateSamplingChain(
+  optionChain: TastytradeOptionChain,
+  underlyingPrice: number,
+): TastytradeOptionChain {
+  return {
+    ...optionChain,
+    expirations: optionChain.expirations
+      .filter(
+        (expiration) =>
+          toNumber(expiration["days-to-expiration"]) <= MAX_VOLUME_SAMPLE_DTE,
+      )
+      .map((expiration) => ({
+        ...expiration,
+        strikes: pickMandatoryCandidateStrikes(
+          expiration.strikes,
+          underlyingPrice,
+        ),
+      }))
+      .filter((expiration) => expiration.strikes.length > 0),
+  };
+}
+
+function mergeVolumeMaps(
+  primary: Record<string, number>,
+  secondary: Record<string, number>,
+) {
+  const merged = { ...primary };
+  for (const [symbol, volume] of Object.entries(secondary)) {
+    const current = merged[symbol];
+    merged[symbol] =
+      current == null ? toNumber(volume) : Math.max(toNumber(current), toNumber(volume));
+  }
+  return merged;
 }
 
 export async function fetchOptionVolumes(
@@ -127,45 +198,11 @@ export async function fetchOptionVolumes(
       const symbol =
         ev.eventSymbol || ev.symbol || ev.s || ev.t || ev.ticker || ev[1];
 
-      let vol = toNumberMaybe(
-        ev.size ?? ev.volume ?? ev.v ?? ev.tradeVolume ?? null,
+      const vol = toNumberMaybe(
+        ev.openInterest ?? ev["open-interest"] ?? ev.oi ?? null,
       );
-      if (vol != null)
-        return {
-          symbol,
-          volume: vol,
-          source: "trade.size|volume|v|tradeVolume",
-        };
-
-      vol = toNumberMaybe(ev.dayVolume ?? ev.prevDayVolume ?? null);
-      if (vol != null)
-        return { symbol, volume: vol, source: "dayVolume|prevDayVolume" };
-
-      vol = toNumberMaybe(ev.bidSize ?? ev.askSize ?? null);
-      if (vol != null)
-        return { symbol, volume: vol, source: "bidSize|askSize" };
-
-      vol = toNumberMaybe(ev.openInterest ?? null);
-      if (vol != null) return { symbol, volume: vol, source: "openInterest" };
-
-      if (Array.isArray(ev)) {
-        const arrSymbol = ev[1];
-        for (const item of ev) {
-          if (
-            typeof item === "number" &&
-            Number.isInteger(item) &&
-            item > 0 &&
-            item < 1e8
-          ) {
-            return { symbol: arrSymbol, volume: item, source: "array:number" };
-          }
-          if (typeof item === "string") {
-            const n = Number(item);
-            if (Number.isFinite(n) && Number.isInteger(n) && n > 0 && n < 1e8) {
-              return { symbol: arrSymbol, volume: n, source: "array:string" };
-            }
-          }
-        }
+      if (vol != null) {
+        return { symbol, volume: vol, source: "openInterest" };
       }
 
       return null;
@@ -189,8 +226,10 @@ export async function fetchOptionVolumes(
                 "volume:",
                 parsed.volume,
               );
-              volumes[parsed.symbol] =
-                (volumes[parsed.symbol] || 0) + parsed.volume;
+                volumes[parsed.symbol] = Math.max(
+                  volumes[parsed.symbol] || 0,
+                  parsed.volume,
+                );
             }
           } catch (e) {}
         }
@@ -283,9 +322,14 @@ export function mergeVolumesIntoChain(
 export async function fetchOptionChainWithVolume(symbol: string) {
   const optionChain = await fetchOptionChain(symbol);
   const underlyingPrice = await getUnderlyingPrice(symbol);
+  const resolvedUnderlyingPrice = underlyingPrice?.underlyingPrice || 0;
   const filteredForVolumeSampling = filterOptionChainForVolumeSampling(
     optionChain,
-    underlyingPrice?.underlyingPrice || 0,
+    resolvedUnderlyingPrice,
+  );
+  const mandatoryCandidateSamplingChain = buildMandatoryCandidateSamplingChain(
+    optionChain,
+    resolvedUnderlyingPrice,
   );
   const totalStrikeCount = optionChain.expirations.reduce(
     (sum, expiration) => sum + expiration.strikes.length,
@@ -307,6 +351,11 @@ export async function fetchOptionChainWithVolume(symbol: string) {
       sampledExpirations: filteredForVolumeSampling.expirations.length,
       totalStrikes: totalStrikeCount,
       sampledStrikes: sampledStrikeCount,
+      mandatoryCandidateSampleStrikes:
+        mandatoryCandidateSamplingChain.expirations.reduce(
+          (sum, expiration) => sum + expiration.strikes.length,
+          0,
+        ),
       maxDte: MAX_VOLUME_SAMPLE_DTE,
       maxStrikeDistanceRatio: MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME,
       maxStrikesPerExpiration: MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME,
@@ -314,7 +363,12 @@ export async function fetchOptionChainWithVolume(symbol: string) {
     }),
   );
   const optionVolumes = await fetchOptionVolumes(filteredForVolumeSampling, 5000);
-  const merged = mergeVolumesIntoChain(optionChain, optionVolumes);
+  const mandatoryCandidateVolumes = await fetchOptionVolumes(
+    mandatoryCandidateSamplingChain,
+    7000,
+  );
+  const mergedOptionVolumes = mergeVolumeMaps(optionVolumes, mandatoryCandidateVolumes);
+  const merged = mergeVolumesIntoChain(optionChain, mergedOptionVolumes);
   console.log(
     "Merged option chain with volumes:",
     JSON.stringify(merged, null, 2),
