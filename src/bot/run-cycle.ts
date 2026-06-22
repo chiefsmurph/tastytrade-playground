@@ -3,15 +3,51 @@ import { getAccountBalanceNumber, getEffectiveTotalCapital } from "../core/accou
 import { AccountBalance } from "../core/types";
 import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
-import { getTimeOfDayExecutionTargets, getTimeOfDayExecutionTargetsForPstTime } from "./evaluate-trading-strategy";
+import { getTimeOfDayExecutionTargets } from "./evaluate-trading-strategy";
 import { setLastBotRunState } from "./last-run-state";
-import { appendRunHistory, RunGroupReturn, RunHistoryEntry } from "./run-history";
+import { appendRunHistory, RunGroupReturn, RunHistoryEntry, RunPlanRow } from "./run-history";
 import {
   buildInitialBudget,
   getUpdatedBudgetAfterAllocation,
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
 import { PositionGroupEvaluation } from "./evaluate-position";
+
+export interface RunCyclePreview {
+  accountNumber: string;
+  groups: RunGroupReturn[];
+  plan: {
+    rows: RunPlanRow[];
+    totalContracts: number;
+    totalEstimatedCost: number;
+  };
+  snapshot: {
+    currentExposurePct: number;
+    currentExposureValue: number;
+    routeWeights: {
+      ask: number;
+      bid: number;
+      mid: number;
+    };
+    targetDTE: number;
+    targetExposurePct: number;
+    targetExposureValue: number;
+    totalCapital: number;
+  };
+}
+
+type RunCycleContext = {
+  accountBalances: AccountBalance;
+  completedEvaluations: PositionGroupEvaluation[];
+  preview: RunCyclePreview;
+  runExecutionTargets: {
+    askWeight: number;
+    bidWeight: number;
+    midWeight: number;
+    targetAccountExposure: number;
+    targetDTE: number;
+  };
+};
 
 function formatCurrency(value: number): string {
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
@@ -21,21 +57,26 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
-function logRunPlan(
-  accountNumber: string,
-  rows: Array<{
-    symbol: string;
-    underlyingSymbol: string;
-    route: string;
-    quantity: number;
-    limitPrice: number;
-    estimatedCost: number;
-  }>,
-): void {
-  console.log("\n================= RUN PLAN =================");
-  console.log(`Account: ${accountNumber}`);
+function logRunSnapshot(preview: RunCyclePreview): void {
+  console.log("\n================ RUN SNAPSHOT ================");
+  console.log(
+    `Current Exposure: ${formatPercent(preview.snapshot.currentExposurePct)} (${formatCurrency(preview.snapshot.currentExposureValue)} of ${formatCurrency(preview.snapshot.totalCapital)})`,
+  );
+  console.log(
+    `Target Exposure:  ${formatPercent(preview.snapshot.targetExposurePct)} (${formatCurrency(preview.snapshot.targetExposureValue)} of ${formatCurrency(preview.snapshot.totalCapital)})`,
+  );
+  console.log(`Target DTE:       ${preview.snapshot.targetDTE}`);
+  console.log(
+    `Route Weights:    bid=${preview.snapshot.routeWeights.bid.toFixed(2)} mid=${preview.snapshot.routeWeights.mid.toFixed(2)} ask=${preview.snapshot.routeWeights.ask.toFixed(2)}`,
+  );
+  console.log("===============================================\n");
+}
 
-  if (rows.length === 0) {
+function logRunPlan(preview: RunCyclePreview): void {
+  console.log("\n================= RUN PLAN =================");
+  console.log(`Account: ${preview.accountNumber}`);
+
+  if (preview.plan.rows.length === 0) {
     console.log("No allocation orders planned for this cycle.");
     console.log("============================================\n");
     return;
@@ -44,7 +85,7 @@ function logRunPlan(
   console.log("symbol                route  qty   limit      estCost");
   console.log("--------------------  -----  ----  ---------  ----------");
 
-  for (const row of rows) {
+  for (const row of preview.plan.rows) {
     const symbol = row.symbol.padEnd(20, " ");
     const route = row.route.padEnd(5, " ");
     const qty = String(row.quantity).padStart(4, " ");
@@ -53,11 +94,9 @@ function logRunPlan(
     console.log(`${symbol}  ${route}  ${qty}  ${limit}  ${estCost}`);
   }
 
-  const totalContracts = rows.reduce((sum, row) => sum + row.quantity, 0);
-  const totalCost = rows.reduce((sum, row) => sum + row.estimatedCost, 0);
   console.log("--------------------  -----  ----  ---------  ----------");
   console.log(
-    `TOTAL                            ${String(totalContracts).padStart(4, " ")}             ${formatCurrency(totalCost).padStart(10, " ")}`,
+    `TOTAL                            ${String(preview.plan.totalContracts).padStart(4, " ")}             ${formatCurrency(preview.plan.totalEstimatedCost).padStart(10, " ")}`,
   );
   console.log("============================================\n");
 }
@@ -89,7 +128,7 @@ function logGroupReturns(groupReturns: RunGroupReturn[]): void {
 }
 
 function computeGroupReturns(
-  completedEvaluations: PositionGroupEvaluation[]
+  completedEvaluations: PositionGroupEvaluation[],
 ): RunGroupReturn[] {
   return completedEvaluations.map((evaluation) => {
     const weightedAverageFill = evaluation.metrics.weightedAverageFill;
@@ -127,59 +166,48 @@ function computeGroupReturns(
   });
 }
 
-export default async function everyFourMinutes(): Promise<RunHistoryEntry> {
+async function getDefaultAccountNumber(): Promise<string> {
   const accounts =
     await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
-  const extractedAccountNumbers: string[] = accounts.map(
-    (item: any) => item.account["account-number"],
-  );
-  const accountNumber = extractedAccountNumbers[0];
-  console.log({ accounts, extractedAccountNumbers, accountNumber });
+  const accountNumber = accounts[0]?.account?.["account-number"];
 
-  await cancelAllLiveOrders(accountNumber);
+  if (!accountNumber) {
+    throw new Error("No account number available");
+  }
+
+  return accountNumber;
+}
+
+async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleContext> {
+  const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
 
   const accountBalances: AccountBalance =
     await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
-      accountNumber,
+      resolvedAccountNumber,
     );
-  console.log(
-    "Current account balances:",
-    JSON.stringify(accountBalances, null, 2),
-  );
 
   const buyingPower = getAccountBalanceNumber(
     accountBalances,
     "derivative_buying_power",
     "derivative-buying-power",
   );
-  console.log("Current buying power:", buyingPower);
 
-  const completedEvaluations = await getPositionEvaluations(accountNumber);
+  const completedEvaluations = await getPositionEvaluations(resolvedAccountNumber);
   const groupReturns = computeGroupReturns(completedEvaluations);
-  const runExecutionTargets = getTimeOfDayExecutionTargetsForPstTime("11:00");//getTimeOfDayExecutionTargets(new Date());
+  const runExecutionTargets = getTimeOfDayExecutionTargets(new Date());
 
   const startingBudget = buildInitialBudget(
     buyingPower,
     getEffectiveTotalCapital(accountBalances),
     completedEvaluations,
   );
+
   const currentExposurePct =
     startingBudget.totalCapital > 0
       ? startingBudget.portfolioExposure / startingBudget.totalCapital
       : 0;
   const targetExposureValue =
     startingBudget.totalCapital * runExecutionTargets.targetAccountExposure;
-
-  console.log("\n================ RUN SNAPSHOT ================");
-  console.log(`Current Exposure: ${formatPercent(currentExposurePct)} (${formatCurrency(startingBudget.portfolioExposure)} of ${formatCurrency(startingBudget.totalCapital)})`);
-  console.log(`Target Exposure:  ${formatPercent(runExecutionTargets.targetAccountExposure)} (${formatCurrency(targetExposureValue)} of ${formatCurrency(startingBudget.totalCapital)})`);
-  console.log(`Target DTE:       ${runExecutionTargets.targetDTE}`);
-  console.log(
-    `Route Weights:    bid=${runExecutionTargets.bidWeight.toFixed(2)} mid=${runExecutionTargets.midWeight.toFixed(2)} ask=${runExecutionTargets.askWeight.toFixed(2)}`,
-  );
-  console.log("===============================================\n");
-
-  logGroupReturns(groupReturns);
 
   const plannedManageEvaluations = completedEvaluations
     .map((evaluation) => ({
@@ -189,20 +217,13 @@ export default async function everyFourMinutes(): Promise<RunHistoryEntry> {
     .filter((evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION")
     .sort((a, b) => a.currentReturn - b.currentReturn);
 
-  const plannedRows: Array<{
-    symbol: string;
-    underlyingSymbol: string;
-    route: string;
-    quantity: number;
-    limitPrice: number;
-    estimatedCost: number;
-  }> = [];
+  const plannedRows: RunPlanRow[] = [];
 
   let planningBudget = startingBudget;
   for (const [index, evaluation] of plannedManageEvaluations.entries()) {
     const groupsRemainingForAllocation = plannedManageEvaluations.length - index;
     const planResult = await manageAllocationForGroup(
-      accountNumber,
+      resolvedAccountNumber,
       evaluation,
       planningBudget,
       groupsRemainingForAllocation,
@@ -230,19 +251,61 @@ export default async function everyFourMinutes(): Promise<RunHistoryEntry> {
     });
   }
 
-  logRunPlan(accountNumber, plannedRows);
-
-  const executionResults = await executePositionEvaluations(
-    accountNumber,
+  return {
     accountBalances,
     completedEvaluations,
+    preview: {
+      accountNumber: resolvedAccountNumber,
+      groups: groupReturns,
+      plan: {
+        rows: plannedRows,
+        totalContracts: plannedRows.reduce((sum, row) => sum + row.quantity, 0),
+        totalEstimatedCost: plannedRows.reduce((sum, row) => sum + row.estimatedCost, 0),
+      },
+      snapshot: {
+        currentExposurePct,
+        currentExposureValue: startingBudget.portfolioExposure,
+        routeWeights: {
+          ask: runExecutionTargets.askWeight,
+          bid: runExecutionTargets.bidWeight,
+          mid: runExecutionTargets.midWeight,
+        },
+        targetDTE: runExecutionTargets.targetDTE,
+        targetExposurePct: runExecutionTargets.targetAccountExposure,
+        targetExposureValue,
+        totalCapital: startingBudget.totalCapital,
+      },
+    },
     runExecutionTargets,
+  };
+}
+
+export async function getRunCyclePreview(accountNumber?: string): Promise<RunCyclePreview> {
+  const context = await buildRunCycleContext(accountNumber);
+  return context.preview;
+}
+
+export default async function runBotCycle(accountNumber?: string): Promise<RunHistoryEntry> {
+  const context = await buildRunCycleContext(accountNumber);
+
+  console.log({
+    accountNumber: context.preview.accountNumber,
+    run: "bot-cycle",
+  });
+
+  await cancelAllLiveOrders(context.preview.accountNumber);
+
+  logRunSnapshot(context.preview);
+  logGroupReturns(context.preview.groups);
+  logRunPlan(context.preview);
+
+  const executionResults = await executePositionEvaluations(
+    context.preview.accountNumber,
+    context.accountBalances,
+    context.completedEvaluations,
+    context.runExecutionTargets,
   );
 
-  const planTotals = {
-    totalContracts: plannedRows.reduce((sum, row) => sum + row.quantity, 0),
-    totalEstimatedCost: plannedRows.reduce((sum, row) => sum + row.estimatedCost, 0),
-  };
   const executionSummary = {
     allocationEstimatedTotal: executionResults.allocationOrders.reduce(
       (sum, order) => sum + (order.estimatedOrderValue ?? 0),
@@ -261,49 +324,17 @@ export default async function everyFourMinutes(): Promise<RunHistoryEntry> {
   };
 
   const runHistoryEntry = await appendRunHistory({
-    accountNumber,
+    accountNumber: context.preview.accountNumber,
     executionSummary,
-    groups: groupReturns,
-    plan: {
-      rows: plannedRows,
-      ...planTotals,
-    },
-    snapshot: {
-      currentExposurePct,
-      currentExposureValue: startingBudget.portfolioExposure,
-      routeWeights: {
-        ask: runExecutionTargets.askWeight,
-        bid: runExecutionTargets.bidWeight,
-        mid: runExecutionTargets.midWeight,
-      },
-      targetDTE: runExecutionTargets.targetDTE,
-      targetExposurePct: runExecutionTargets.targetAccountExposure,
-      targetExposureValue,
-      totalCapital: startingBudget.totalCapital,
-    },
+    groups: context.preview.groups,
+    plan: context.preview.plan,
+    snapshot: context.preview.snapshot,
   });
 
   setLastBotRunState(
-    accountNumber,
-    completedEvaluations,
+    context.preview.accountNumber,
+    context.completedEvaluations,
     executionResults,
-  );
-
-  console.log(
-    "Grouped position evaluations:",
-    JSON.stringify(
-      completedEvaluations.map((evaluation) => ({
-        underlyingSymbol: evaluation.underlyingSymbol,
-        positionSymbols: evaluation.positions.map((position) => position.symbol),
-        currentBidPrice: evaluation.metrics.currentBidPrice,
-        currentAskPrice: evaluation.metrics.currentAskPrice,
-        weightedAverageFill: evaluation.metrics.weightedAverageFill,
-        currentReturn: evaluation.currentReturn,
-        strategy: evaluation.strategy,
-      })),
-      null,
-      2,
-    ),
   );
 
   console.log(

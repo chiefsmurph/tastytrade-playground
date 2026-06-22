@@ -98,6 +98,10 @@ node run bot:getTimeOfDayExecutionTargets 10:14
 
 Pass `HH:mm` in Pacific time.
 
+```bash
+node run bot:getRecentRunHistory 20
+```
+
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
@@ -108,6 +112,7 @@ Supported IPC commands
 - `bot:getOptionHealthForSymbol <symbol> [call|put]`
 - `bot:getCurrentAllocationBudget [accountNumber]`
 - `bot:getTimeOfDayExecutionTargets <HH:mm>`
+- `bot:getRecentRunHistory [limit]`
 - `bot:everyFourMinutes`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`
@@ -164,4 +169,5 @@ Notes
 - If the client cannot connect, start or restart the IPC server with `npm run start:tsx`.
 - The Tastytrade calls depend on the values in `.env`.
 - The socket path can be overridden with `TASTYTRADE_BOT_SOCKET`.
+- Run history path can be overridden with `TASTYTRADE_BOT_RUN_HISTORY_PATH` (default: `data/runs.ndjson`).
 - Source imports use extensionless TypeScript paths because runtime execution goes through `tsx` with bundler-style resolution.

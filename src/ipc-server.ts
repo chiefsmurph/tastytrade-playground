@@ -21,6 +21,7 @@ import {
   stopMarketOpenScheduler,
 } from "./bot/market-open-scheduler";
 import { getLastBotRunState } from "./bot/last-run-state";
+import { getRecentRunHistory } from "./bot/run-history";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 
@@ -101,6 +102,10 @@ const commandHandlers: Record<string, CommandHandler> = {
   "bot:johnsTestRun": johnsTestRun,
   "bot:everyFourMinutes": everyFourMinutes,
   "bot:getLastEveryFourMinutesRun": async () => getLastBotRunState(),
+  "bot:getRecentRunHistory": async ([limit]) => {
+    const parsedLimit = limit ? Number(limit) : 20;
+    return getRecentRunHistory(parsedLimit);
+  },
   "bot:getMarketOpenSchedulerStatus": async () =>
     getMarketOpenSchedulerStatus(),
   "bot:startMarketOpenScheduler": async () => startMarketOpenScheduler(),
@@ -234,7 +239,7 @@ function logRequest(
       args: request.args,
       raw: raw ?? undefined,
       timestamp: new Date().toISOString(),
-    }),
+    }, null, 2),
   );
 }
 
@@ -247,7 +252,7 @@ function logResponse(response: IpcResponse) {
       error: response.error ?? null,
       result: response.result ?? null,
       timestamp: new Date().toISOString(),
-    }),
+    }, null, 2),
   );
 }
 
