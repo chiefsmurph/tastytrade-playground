@@ -10,7 +10,10 @@ import {
 import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "./bot/evaluate-trading-strategy";
 import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
-import runBotCycle, { getRunCyclePreview } from "./bot/run-cycle";
+import runBotCycle, {
+  getRunCyclePreview,
+  runBotCycleLogOnly,
+} from "./bot/run-cycle";
 import seedSymbol from "./bot/seed-symbol";
 import purchaseSymbol from "./bot/purchase-symbol";
 import {
@@ -121,6 +124,8 @@ const commandHandlers: Record<string, CommandHandler> = {
   },
   "bot:johnsTestRun": johnsTestRun,
   "bot:runCycle": async ([accountNumber]) => runBotCycle(accountNumber),
+  "bot:runCycleLogOnly": async ([accountNumber]) =>
+    runBotCycleLogOnly(accountNumber),
   "bot:getRunCyclePreview": async ([accountNumber]) =>
     getRunCyclePreview(accountNumber),
   "bot:getLastRunCycle": async () => getLastBotRunState(),

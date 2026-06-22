@@ -349,6 +349,23 @@ export async function getRunCyclePreview(
   return context.preview;
 }
 
+export async function runBotCycleLogOnly(
+  accountNumber?: string,
+): Promise<RunCyclePreview> {
+  const context = await buildRunCycleContext(accountNumber);
+
+  console.log({
+    accountNumber: context.preview.accountNumber,
+    run: "bot-cycle-log-only",
+  });
+
+  logRunSnapshot(context.preview);
+  logGroupReturns(context.preview.groups);
+  logRunPlan(context.preview);
+
+  return context.preview;
+}
+
 export default async function runBotCycle(
   accountNumber?: string,
 ): Promise<RunHistoryEntry> {
