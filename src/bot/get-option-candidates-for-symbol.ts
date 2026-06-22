@@ -316,11 +316,12 @@ export async function getOptionHealthForSymbol(
         return result;
       }
 
-      result.healthyTargets.push(targetDTE);
-
       if (candidate.usedDteFallback) {
         result.fallbackTargets.push(targetDTE);
+        return result;
       }
+
+      result.healthyTargets.push(targetDTE);
 
       return result;
     },
