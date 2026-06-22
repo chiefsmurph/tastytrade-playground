@@ -9,18 +9,27 @@ import { ProgrammaticAction, evaluateTradingStrategy, PositionMetrics } from "./
 
 const DEFAULT_TOP_CANDIDATE_DTE_TOLERANCE = 7;
 const DEFAULT_OPTION_HEALTH_DTES = [7, 14, 30] as const;
+const DEFAULT_MAX_OPTION_SPREAD_PCT = 0.3;
 
 export interface TopOptionCandidateForSymbolResult {
+  askPrice?: number;
+  bidPrice?: number;
   "call-streamer-symbol"?: string;
   call?: string;
   dte?: number;
+  maxAllowedSpreadPct?: number;
   maxDTE?: number;
+  meetsSpreadRequirement?: boolean;
   meetsVolumeRequirement?: boolean;
   minDTE?: number;
   preferredDTE?: number;
   "put-streamer-symbol"?: string;
   put?: string;
+  quoteSymbol?: string;
   requestedSide: "call" | "put";
+  skippedReason?: string;
+  spread?: number;
+  spreadPct?: number;
   strategy?: ProgrammaticAction;
   streamerSymbol?: string;
   symbol?: string;
@@ -36,6 +45,7 @@ export interface OptionHealthSummary {
   fallbackTargets: number[];
   healthyTargets: number[];
   missingTargets: number[];
+  wideSpreadTargets: number[];
 }
 
 export interface OptionHealthForSymbolResult {
@@ -93,7 +103,39 @@ function getResolvedSelectionOptions(
   };
 }
 
-function buildTopOptionCandidateResult(
+function getMaxOptionSpreadPct(): number {
+  const raw = process.env.BOT_MAX_OPTION_SPREAD_PCT;
+  if (!raw) {
+    return DEFAULT_MAX_OPTION_SPREAD_PCT;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_OPTION_SPREAD_PCT;
+  }
+
+  return parsed;
+}
+
+function getSpreadStats(bid: number, ask: number) {
+  const resolvedBid = bid > 0 ? bid : 0;
+  const resolvedAsk = ask > 0 ? ask : resolvedBid;
+  const midpoint =
+    resolvedBid > 0 && resolvedAsk > 0
+      ? (resolvedBid + resolvedAsk) / 2
+      : resolvedAsk || resolvedBid;
+  const spread = Math.max(0, resolvedAsk - resolvedBid);
+  const spreadPct = midpoint > 0 ? spread / midpoint : Number.POSITIVE_INFINITY;
+
+  return {
+    askPrice: resolvedAsk,
+    bidPrice: resolvedBid,
+    spread,
+    spreadPct,
+  };
+}
+
+async function buildTopOptionCandidateResult(
   symbol: string,
   side: "call" | "put",
   optionChain: Awaited<
@@ -102,7 +144,7 @@ function buildTopOptionCandidateResult(
   underlyingPrice: number,
   targetDTE?: number,
   selectionOptions?: OptionCandidateSelectionOptions,
-): TopOptionCandidateForSymbolResult | undefined {
+): Promise<TopOptionCandidateForSymbolResult | undefined> {
   const { defaultSelection, preferredDTE, resolvedSelectionOptions } =
     getResolvedSelectionOptions(targetDTE, selectionOptions);
   const { usedDteFallback } = resolveCandidateExpirations(
@@ -131,18 +173,63 @@ function buildTopOptionCandidateResult(
     return bVolume - aVolume;
   });
 
+  const maxAllowedSpreadPct = getMaxOptionSpreadPct();
+  let fallbackWideSpreadCandidate: TopOptionCandidateForSymbolResult | undefined;
+
+  for (const candidate of sortedCandidates) {
+    const quoteSymbol = candidate.streamerSymbol ?? candidate.symbol;
+    if (!quoteSymbol) {
+      continue;
+    }
+
+    const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
+      quoteSymbol,
+      2000,
+    );
+    const spreadStats = getSpreadStats(bidAsk?.bid ?? 0, bidAsk?.ask ?? 0);
+    const meetsSpreadRequirement = spreadStats.spreadPct <= maxAllowedSpreadPct;
+
+    const candidateResult: TopOptionCandidateForSymbolResult = {
+      ...candidate,
+      ...spreadStats,
+      maxAllowedSpreadPct,
+      meetsSpreadRequirement,
+      quoteSymbol,
+      requestedSide: side,
+      strategy: defaultSelection?.strategy,
+      usedDteFallback,
+    };
+
+    if (meetsSpreadRequirement) {
+      console.log(`Top option candidate for ${symbol}:`, candidateResult);
+      return candidateResult;
+    }
+
+    if (!fallbackWideSpreadCandidate) {
+      fallbackWideSpreadCandidate = candidateResult;
+    }
+  }
+
+  if (fallbackWideSpreadCandidate) {
+    return {
+      ...fallbackWideSpreadCandidate,
+      symbol: undefined,
+      call: undefined,
+      put: undefined,
+      skippedReason: "all candidate spreads exceeded BOT_MAX_OPTION_SPREAD_PCT",
+    };
+  }
+
   const topCandidate = sortedCandidates[0];
-  console.log(`Top option candidate for ${symbol}:`, {
-    ...topCandidate,
-    requestedSide: side,
-    usedDteFallback,
-  });
   if (!topCandidate) {
     return {
+      maxAllowedSpreadPct,
       maxDTE: resolvedSelectionOptions?.maxDTE,
+      meetsSpreadRequirement: false,
       minDTE: resolvedSelectionOptions?.minDTE,
       preferredDTE,
       requestedSide: side,
+      skippedReason: "no candidate found for target",
       strategy: defaultSelection?.strategy,
       usedDteFallback,
     };
@@ -150,9 +237,12 @@ function buildTopOptionCandidateResult(
 
   return {
     ...topCandidate,
+    maxAllowedSpreadPct,
     maxDTE: resolvedSelectionOptions?.maxDTE,
+    meetsSpreadRequirement: false,
     minDTE: resolvedSelectionOptions?.minDTE,
     preferredDTE,
+    skippedReason: "candidate quote symbol unavailable",
     requestedSide: side,
     strategy: defaultSelection?.strategy,
     usedDteFallback,
@@ -171,7 +261,7 @@ export async function getTopOptionCandidateForSymbol(
   const underlyingPrice = await tastytradeApi.johnsService.getUnderlyingPrice(
     symbol,
   );
-  return buildTopOptionCandidateResult(
+  return await buildTopOptionCandidateResult(
     symbol,
     side,
     optionChain,
@@ -195,24 +285,34 @@ export async function getOptionHealthForSymbol(
   const resolvedUnderlyingPrice = underlyingPrice?.underlyingPrice || 0;
   const normalizedSymbol = symbol.toUpperCase();
 
-  const targets = Object.fromEntries(
-    targetDTEs.map((targetDTE) => [
+  const targetEntries = await Promise.all(
+    targetDTEs.map(async (targetDTE) => [
       String(targetDTE),
-      buildTopOptionCandidateResult(
+      await buildTopOptionCandidateResult(
         normalizedSymbol,
         side,
         optionChain,
         resolvedUnderlyingPrice,
         targetDTE,
       ),
-    ]),
-  ) as Record<string, TopOptionCandidateForSymbolResult | undefined>;
+    ] as const),
+  );
+
+  const targets = Object.fromEntries(targetEntries) as Record<
+    string,
+    TopOptionCandidateForSymbolResult | undefined
+  >;
   const summary = targetDTEs.reduce<OptionHealthSummary>(
     (result, targetDTE) => {
       const candidate = targets[String(targetDTE)];
 
-      if (!candidate?.symbol) {
+      if (!candidate?.symbol || candidate.meetsSpreadRequirement === false) {
         result.missingTargets.push(targetDTE);
+
+        if (candidate?.meetsSpreadRequirement === false) {
+          result.wideSpreadTargets.push(targetDTE);
+        }
+
         return result;
       }
 
@@ -228,6 +328,7 @@ export async function getOptionHealthForSymbol(
       fallbackTargets: [],
       healthyTargets: [],
       missingTargets: [],
+      wideSpreadTargets: [],
     },
   );
 
