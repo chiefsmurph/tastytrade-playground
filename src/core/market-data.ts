@@ -1,6 +1,7 @@
 import tastytradeApi from "./tastytrade-client";
 
 type QuoteEvent = Record<string, any>;
+let quoteStreamerConnectPromise: Promise<void> | null = null;
 
 function toNumber(value: unknown): number | null {
   if (value == null) return null;
@@ -77,14 +78,20 @@ async function withQuoteSubscription<T>(
   timeoutMs: number,
   onEvent: (event: QuoteEvent, resolve: (value: T | null) => void) => void,
 ): Promise<T | null> {
-  await tastytradeApi.quoteStreamer.connect();
+  await ensureQuoteStreamerConnected();
 
   const candidates = normalizeCandidates(symbol);
 
   return await new Promise((resolve) => {
+    let settled = false;
     const timer = setTimeout(() => cleanupAndResolve(null), timeoutMs);
 
     function cleanupAndResolve(result: T | null) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
       try {
         tastytradeApi.quoteStreamer.unsubscribe(candidates);
       } catch {}
@@ -115,6 +122,20 @@ async function withQuoteSubscription<T>(
       cleanupAndResolve(null);
     }
   });
+}
+
+async function ensureQuoteStreamerConnected(): Promise<void> {
+  if (tastytradeApi.quoteStreamer.dxLinkFeed) {
+    return;
+  }
+
+  quoteStreamerConnectPromise ??= tastytradeApi.quoteStreamer
+    .connect()
+    .finally(() => {
+      quoteStreamerConnectPromise = null;
+    });
+
+  await quoteStreamerConnectPromise;
 }
 
 export async function getBidAskForSymbol(
