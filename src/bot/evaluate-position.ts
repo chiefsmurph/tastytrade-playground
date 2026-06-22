@@ -30,6 +30,16 @@ export function getUnderlyingSymbolForPosition(position: CurrentPosition): strin
   return (position["underlying-symbol"] as string | null | undefined)?.trim() || position.symbol;
 }
 
+function getOptionSideForPosition(position: CurrentPosition): "call" | "put" | null {
+  const trimmed = String(position.symbol ?? "").trim();
+  const match = trimmed.match(/([CP])(\d+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  return match[1].toUpperCase() === "P" ? "put" : "call";
+}
+
 export function groupPositionsByUnderlying(
   positions: CurrentPosition[],
 ): Map<string, CurrentPosition[]> {
@@ -37,14 +47,16 @@ export function groupPositionsByUnderlying(
 
   for (const position of positions) {
     const underlyingSymbol = getUnderlyingSymbolForPosition(position);
-    const existing = grouped.get(underlyingSymbol);
+    const side = getOptionSideForPosition(position) ?? "none";
+    const groupKey = `${underlyingSymbol}::${side}`;
+    const existing = grouped.get(groupKey);
 
     if (existing) {
       existing.push(position);
       continue;
     }
 
-    grouped.set(underlyingSymbol, [position]);
+    grouped.set(groupKey, [position]);
   }
 
   return grouped;

@@ -152,14 +152,15 @@ function logGroupReturns(groupReturns: RunGroupReturn[]): void {
   }
 
   console.log(
-    "underlying            bid%      ask%      current%   costBasis     unrlzdBid$   unrlzdAsk$",
+    "underlying            side   bid%      ask%      current%   costBasis     unrlzdBid$   unrlzdAsk$",
   );
   console.log(
-    "--------------------  --------  --------  ---------  -----------  -----------  -----------",
+    "--------------------  -----  --------  --------  ---------  -----------  -----------  -----------",
   );
 
   for (const group of groupReturns) {
     const underlying = group.underlyingSymbol.padEnd(20, " ");
+    const side = group.side.padEnd(5, " ");
     const bidReturn = formatPercent(group.bidReturnPct).padStart(8, " ");
     const askReturn = formatPercent(group.askReturnPct).padStart(8, " ");
     const currentReturn = formatPercent(group.currentReturnPct).padStart(
@@ -174,7 +175,7 @@ function logGroupReturns(groupReturns: RunGroupReturn[]): void {
       group.totalUnrealizedReturnAsk,
     ).padStart(11, " ");
     console.log(
-      `${underlying}  ${bidReturn}  ${askReturn}  ${currentReturn}  ${costBasis}  ${unrealizedBid}  ${unrealizedAsk}`,
+      `${underlying}  ${side}  ${bidReturn}  ${askReturn}  ${currentReturn}  ${costBasis}  ${unrealizedBid}  ${unrealizedAsk}`,
     );
   }
 
@@ -185,6 +186,14 @@ function computeGroupReturns(
   completedEvaluations: PositionGroupEvaluation[],
 ): RunGroupReturn[] {
   return completedEvaluations.map((evaluation) => {
+    const firstSymbol = String(evaluation.positions[0]?.symbol ?? "").trim();
+    const sideMatch = firstSymbol.match(/([CP])(\d+)$/i);
+    const side: "call" | "put" | "none" = sideMatch
+      ? sideMatch[1].toUpperCase() === "P"
+        ? "put"
+        : "call"
+      : "none";
+
     const weightedAverageFill = evaluation.metrics.weightedAverageFill;
     const totalQuantityWeight = evaluation.positionSnapshots.reduce(
       (sum, snapshot) => sum + snapshot.quantityWeight,
@@ -212,6 +221,7 @@ function computeGroupReturns(
       askReturnPct,
       bidReturnPct,
       currentReturnPct: evaluation.currentReturn,
+      side,
       totalCostBasis,
       totalUnrealizedReturnAsk,
       totalUnrealizedReturnBid,

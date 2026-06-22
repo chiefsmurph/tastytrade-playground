@@ -14,6 +14,7 @@ export interface RunGroupReturn {
   askReturnPct: number;
   bidReturnPct: number;
   currentReturnPct: number;
+  side: "call" | "put" | "none";
   totalCostBasis: number;
   totalUnrealizedReturnAsk: number;
   totalUnrealizedReturnBid: number;

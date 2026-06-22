@@ -29,8 +29,27 @@ export function getSignedPendingCash(accountBalance: TastytradeAccountBalance): 
 }
 
 export function getEffectiveTotalCapital(accountBalance: TastytradeAccountBalance): number {
-  return (
-    getAccountBalanceNumber(accountBalance, "net-liquidating-value") +
-    getSignedPendingCash(accountBalance)
+  const derivativeBuyingPower = getAccountBalanceNumber(
+    accountBalance,
+    "derivative-buying-power",
   );
+  if (derivativeBuyingPower > 0) {
+    return derivativeBuyingPower;
+  }
+
+  const equityBuyingPower = getAccountBalanceNumber(
+    accountBalance,
+    "equity-buying-power",
+  );
+  if (equityBuyingPower > 0) {
+    return equityBuyingPower;
+  }
+
+  const netLiq = getAccountBalanceNumber(accountBalance, "net-liquidating-value");
+
+  if (netLiq > 0) {
+    return netLiq;
+  }
+
+  return netLiq + getSignedPendingCash(accountBalance);
 }
