@@ -94,10 +94,25 @@ const commandHandlers: Record<string, CommandHandler> = {
     const normalizedSide = side === "put" ? "put" : "call";
     return getTopOptionCandidateForSymbol(symbol, normalizedSide);
   },
-  "bot:getOptionHealthForSymbol": async ([symbol, side]) => {
+  "bot:getOptionHealthForSymbol": async ([symbol, side, targetDTE]) => {
     assertArg(symbol, "symbol");
     const normalizedSide = side === "put" ? "put" : "call";
-    return getOptionHealthForSymbol(symbol, normalizedSide);
+    const parsedTargetDTE =
+      targetDTE != null && targetDTE !== "" ? Number(targetDTE) : undefined;
+
+    if (
+      parsedTargetDTE != null &&
+      (!Number.isFinite(parsedTargetDTE) || parsedTargetDTE <= 0)
+    ) {
+      throw new Error("targetDTE must be a number greater than 0");
+    }
+
+    return getOptionHealthForSymbol(
+      symbol,
+      normalizedSide,
+      undefined,
+      parsedTargetDTE,
+    );
   },
   "bot:getTimeOfDayExecutionTargets": async ([timeOfDay]) => {
     return getTargetsForPstTime(timeOfDay);

@@ -5,7 +5,11 @@ import {
 import tastytradeApi from "~/core/tastytrade-client";
 import { getPositionEvaluations } from "../get-position-evaluations";
 import { PositionGroupEvaluation } from "../evaluate-position";
-import { getTopOptionCandidateForSymbol } from "../get-option-candidates-for-symbol";
+import {
+  evaluateOptionHealthForTargetDTE,
+  getOptionHealthForSymbol,
+  getTopOptionCandidateForSymbol,
+} from "../get-option-candidates-for-symbol";
 import {
   getGroupMarketValue,
   inferOptionSide,
@@ -275,6 +279,39 @@ export async function manageAllocationForGroup(
   }
 
   const optionSide = getCandidateSide(evaluation);
+  const healthResult = await getOptionHealthForSymbol(
+    evaluation.underlyingSymbol,
+    optionSide,
+  );
+  const healthGate = evaluateOptionHealthForTargetDTE(
+    healthResult.summary,
+    targets.targetDTE,
+  );
+
+  console.log(
+    JSON.stringify({
+      scope: "manage-allocation-health-gate",
+      underlyingSymbol: evaluation.underlyingSymbol,
+      requestedSide: optionSide,
+      targetDTE: targets.targetDTE,
+      requiredHealthyTargets: healthGate.requiredHealthyTargets,
+      missingRequiredTargets: healthGate.missingRequiredTargets,
+      passed: healthGate.passed,
+      healthSummary: healthResult.summary,
+    }),
+  );
+
+  if (!healthGate.passed) {
+    return {
+      accountNumber,
+      action: "MANAGE_ALLOCATION",
+      placedOrder: false,
+      routeOrders: [],
+      skippedReason: `option health gate failed for target DTE ${targets.targetDTE}; missing healthy checkpoints: ${healthGate.missingRequiredTargets.join(", ")}`,
+      underlyingSymbol: evaluation.underlyingSymbol,
+    };
+  }
+
   const candidate = await getTopOptionCandidateForSymbol(
     evaluation.underlyingSymbol,
     optionSide,

@@ -88,7 +88,13 @@ node run bot:getTopOptionCandidateForSymbol RUM call
 node run bot:getOptionHealthForSymbol RUM call
 ```
 
-This returns keyed target checks for `7`, `14`, and `30` DTE plus a compact summary of `healthyTargets`, `missingTargets`, and `fallbackTargets`.
+This returns keyed target checks for `7`, `14`, and `30` DTE plus a compact summary of `healthyTargets`, `missingTargets`, and `fallbackTargets`, along with `canOpenNewPosition` computed from the current time-of-day target DTE.
+
+You can also provide an explicit target DTE override for eligibility:
+
+```bash
+node run bot:getOptionHealthForSymbol RUM call 14
+```
 
 ```bash
 node run bot:getCurrentAllocationBudget
@@ -123,7 +129,7 @@ Supported IPC commands
 - `core:fetchOptionChainsWithVolume <symbol>`
 - `bot:getOptionCandidates <symbol> [call|put]`
 - `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
-- `bot:getOptionHealthForSymbol <symbol> [call|put]`
+- `bot:getOptionHealthForSymbol <symbol> [call|put] [targetDTE]`
 - `bot:getCurrentAllocationBudget [accountNumber]`
 - `bot:getTimeOfDayExecutionTargets <HH:mm>`
 - `bot:getRecentRunHistory [limit]`

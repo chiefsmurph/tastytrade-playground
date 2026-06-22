@@ -5,7 +5,12 @@ import {
   OptionCandidateSelectionOptions,
   resolveCandidateExpirations,
 } from "./option-contracts";
-import { ProgrammaticAction, evaluateTradingStrategy, PositionMetrics } from "./evaluate-trading-strategy";
+import {
+  getTimeOfDayExecutionTargets,
+  ProgrammaticAction,
+  evaluateTradingStrategy,
+  PositionMetrics,
+} from "./evaluate-trading-strategy";
 
 const DEFAULT_TOP_CANDIDATE_DTE_TOLERANCE = 7;
 const DEFAULT_OPTION_HEALTH_DTES = [7, 14, 30] as const;
@@ -49,10 +54,20 @@ export interface OptionHealthSummary {
 }
 
 export interface OptionHealthForSymbolResult {
+  canOpenNewPosition: boolean;
+  eligibility: OptionHealthGateDecision;
   requestedSide: "call" | "put";
   symbol: string;
   summary: OptionHealthSummary;
+  targetDTE: number;
   targets: Record<string, TopOptionCandidateForSymbolResult | undefined>;
+}
+
+export interface OptionHealthGateDecision {
+  missingRequiredTargets: number[];
+  passed: boolean;
+  requiredHealthyTargets: number[];
+  targetDTE: number;
 }
 
 function getDefaultTopCandidateSelection() {
@@ -275,6 +290,7 @@ export async function getOptionHealthForSymbol(
   symbol: string,
   side: "call" | "put" = "call",
   targetDTEs: readonly number[] = DEFAULT_OPTION_HEALTH_DTES,
+  targetDTEForEligibility?: number,
 ): Promise<OptionHealthForSymbolResult> {
   const optionChain = await tastytradeApi.johnsService.fetchOptionChainWithVolume(
     symbol,
@@ -332,21 +348,65 @@ export async function getOptionHealthForSymbol(
       wideSpreadTargets: [],
     },
   );
+  const resolvedTargetDTE =
+    targetDTEForEligibility ?? getTimeOfDayExecutionTargets(new Date()).targetDTE;
+  const eligibility = evaluateOptionHealthForTargetDTE(
+    summary,
+    resolvedTargetDTE,
+    targetDTEs,
+  );
 
   console.log(
     JSON.stringify({
+      canOpenNewPosition: eligibility.passed,
+      eligibility,
       requestedSide: side,
       scope: "option-health",
       summary,
       symbol: normalizedSymbol,
+      targetDTE: resolvedTargetDTE,
       targets,
     }),
   );
 
   return {
+    canOpenNewPosition: eligibility.passed,
+    eligibility,
     requestedSide: side,
     summary,
     symbol: normalizedSymbol,
+    targetDTE: resolvedTargetDTE,
     targets,
+  };
+}
+
+export function evaluateOptionHealthForTargetDTE(
+  summary: OptionHealthSummary,
+  targetDTE: number,
+  healthCheckDTEs: readonly number[] = DEFAULT_OPTION_HEALTH_DTES,
+): OptionHealthGateDecision {
+  const normalizedCheckpoints = [...new Set(healthCheckDTEs)]
+    .filter((dte) => Number.isFinite(dte) && dte > 0)
+    .sort((left, right) => left - right);
+
+  const requiredHealthyTargets = normalizedCheckpoints.filter(
+    (checkpointDTE) => checkpointDTE <= targetDTE,
+  );
+
+  const effectiveRequiredTargets =
+    requiredHealthyTargets.length > 0
+      ? requiredHealthyTargets
+      : normalizedCheckpoints.slice(0, 1);
+
+  const healthyTargetSet = new Set(summary.healthyTargets);
+  const missingRequiredTargets = effectiveRequiredTargets.filter(
+    (requiredDTE) => !healthyTargetSet.has(requiredDTE),
+  );
+
+  return {
+    missingRequiredTargets,
+    passed: missingRequiredTargets.length === 0,
+    requiredHealthyTargets: effectiveRequiredTargets,
+    targetDTE,
   };
 }
