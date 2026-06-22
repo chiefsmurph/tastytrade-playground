@@ -1,4 +1,4 @@
-import { getBidAskForSymbol } from "~/core/market-data";
+import tastytradeApi from "~/core/tastytrade-client";
 import { CurrentPosition } from "~/core/types";
 import {
   buildExecutionStrategy,
@@ -59,7 +59,10 @@ function getPositionQuantityWeight(position: CurrentPosition): number {
 async function createPositionQuoteSnapshot(
   position: CurrentPosition,
 ): Promise<PositionQuoteSnapshot> {
-  const bidAsk = await getBidAskForSymbol(position.symbol, 3000);
+  const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
+    position.symbol,
+    3000,
+  );
   const currentBidPrice =
     bidAsk?.bid ?? (position.mark_price ?? position.close_price ?? 0);
   const currentAskPrice =

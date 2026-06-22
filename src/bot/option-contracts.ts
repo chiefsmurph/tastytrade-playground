@@ -1,5 +1,4 @@
-import { getUnderlyingPrice } from "~/core/market-data";
-import { fetchOptionChainWithVolume } from "~/core/option-service";
+import tastytradeApi from "~/core/tastytrade-client";
 import {
   OptionChain,
   OptionChainWithVolumes,
@@ -47,8 +46,12 @@ export async function getOptionCandidates(
   side: "call" | "put" = "call",
   selectionOptions?: OptionCandidateSelectionOptions,
 ): Promise<ReturnType<typeof chooseOptionCandidates>> {
-  const optionChain = await fetchOptionChainWithVolume(symbol);
-  const underlyingPrice = await getUnderlyingPrice(symbol);
+  const optionChain = await tastytradeApi.johnsService.fetchOptionChainWithVolume(
+    symbol,
+  );
+  const underlyingPrice = await tastytradeApi.johnsService.getUnderlyingPrice(
+    symbol,
+  );
   const optionCandidates = chooseOptionCandidates(
     optionChain,
     underlyingPrice?.underlyingPrice || 0,

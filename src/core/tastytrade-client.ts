@@ -1,6 +1,9 @@
 import TastytradeClient from "@tastytrade/api";
 import { config } from "dotenv";
 import type { TypedOrderService } from "./tastytrade-order-service";
+import type { getBidAskForSymbol as GetBidAskForSymbol, getUnderlyingPrice as GetUnderlyingPrice } from "./market-data";
+import type { fetchOptionChain as FetchOptionChain, fetchOptionChainWithVolume as FetchOptionChainWithVolume } from "./option-service";
+import type { cancelAllLiveOrders as CancelAllLiveOrders } from "~/bot/execute-position-evaluations";
 import type {
   AccountBalance,
   CurrentPosition,
@@ -35,6 +38,24 @@ type TypedInstrumentsService = {
 
 type TypedOrderServiceWithRaw = TypedOrderService & RawTastytradeClient["orderService"];
 
+export interface JohnsService {
+  cancelAllLiveOrders: (
+    ...args: Parameters<typeof CancelAllLiveOrders>
+  ) => ReturnType<typeof CancelAllLiveOrders>;
+  fetchOptionChain: (
+    ...args: Parameters<typeof FetchOptionChain>
+  ) => ReturnType<typeof FetchOptionChain>;
+  fetchOptionChainWithVolume: (
+    ...args: Parameters<typeof FetchOptionChainWithVolume>
+  ) => ReturnType<typeof FetchOptionChainWithVolume>;
+  getBidAskForSymbol: (
+    ...args: Parameters<typeof GetBidAskForSymbol>
+  ) => ReturnType<typeof GetBidAskForSymbol>;
+  getUnderlyingPrice: (
+    ...args: Parameters<typeof GetUnderlyingPrice>
+  ) => ReturnType<typeof GetUnderlyingPrice>;
+}
+
 export type TypedTastytradeClient = Omit<
   RawTastytradeClient,
   "accountsAndCustomersService" | "balancesAndPositionsService" | "instrumentsService" | "orderService"
@@ -42,10 +63,34 @@ export type TypedTastytradeClient = Omit<
   accountsAndCustomersService: TypedAccountsAndCustomersService;
   balancesAndPositionsService: TypedBalancesAndPositionsService;
   instrumentsService: TypedInstrumentsService;
+  johnsService: JohnsService;
   orderService: TypedOrderServiceWithRaw;
 };
 
 const tastytradeApi = rawTastytradeApi as unknown as TypedTastytradeClient;
+
+tastytradeApi.johnsService = {
+  async getBidAskForSymbol(...args) {
+    const { getBidAskForSymbol } = await import("./market-data");
+    return getBidAskForSymbol(...args);
+  },
+  async getUnderlyingPrice(...args) {
+    const { getUnderlyingPrice } = await import("./market-data");
+    return getUnderlyingPrice(...args);
+  },
+  async fetchOptionChain(...args) {
+    const { fetchOptionChain } = await import("./option-service");
+    return fetchOptionChain(...args);
+  },
+  async fetchOptionChainWithVolume(...args) {
+    const { fetchOptionChainWithVolume } = await import("./option-service");
+    return fetchOptionChainWithVolume(...args);
+  },
+  async cancelAllLiveOrders(...args) {
+    const { cancelAllLiveOrders } = await import("~/bot/execute-position-evaluations");
+    return cancelAllLiveOrders(...args);
+  },
+};
 
 export default tastytradeApi;
 

@@ -1,4 +1,3 @@
-import { getBidAskForSymbol } from "~/core/market-data";
 import tastytradeApi from "~/core/tastytrade-client";
 import { CurrentPosition } from "~/core/types";
 import { getAccountBalanceNumber } from "~/core/account-balance";
@@ -189,7 +188,10 @@ export async function seedSymbol(
     };
   }
 
-  const bidAsk = await getBidAskForSymbol(quoteSymbol, 3000);
+  const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
+    quoteSymbol,
+    3000,
+  );
   const askPrice = bidAsk?.ask ?? bidAsk?.bid;
 
   if (!(askPrice && askPrice > 0)) {

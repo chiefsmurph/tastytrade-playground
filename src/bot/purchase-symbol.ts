@@ -1,5 +1,4 @@
 import { getAccountBalanceNumber } from "~/core/account-balance";
-import { getBidAskForSymbol } from "~/core/market-data";
 import tastytradeApi from "~/core/tastytrade-client";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import {
@@ -108,7 +107,10 @@ export async function purchaseSymbol(
     };
   }
 
-  const bidAsk = await getBidAskForSymbol(quoteSymbol, 3000);
+  const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
+    quoteSymbol,
+    3000,
+  );
   const bid = bidAsk?.bid ?? 0;
   const ask = bidAsk?.ask ?? bid;
 

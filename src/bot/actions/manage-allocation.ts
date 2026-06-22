@@ -3,7 +3,6 @@ import {
   getEffectiveTotalCapital,
 } from "~/core/account-balance";
 import tastytradeApi from "~/core/tastytrade-client";
-import { getBidAskForSymbol } from "~/core/market-data";
 import { getPositionEvaluations } from "../get-position-evaluations";
 import { PositionGroupEvaluation } from "../evaluate-position";
 import { getTopOptionCandidateForSymbol } from "../get-option-candidates-for-symbol";
@@ -313,7 +312,10 @@ export async function manageAllocationForGroup(
     };
   }
 
-  const bidAsk = await getBidAskForSymbol(candidate.symbol, 3000);
+  const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
+    candidate.symbol,
+    3000,
+  );
   const bid = bidAsk?.bid ?? 0;
   const ask = bidAsk?.ask ?? bid;
   const availableCapital = Math.min(

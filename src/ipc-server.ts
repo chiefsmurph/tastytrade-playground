@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { getBidAskForSymbol, getUnderlyingPrice } from "./core/market-data";
-import { fetchOptionChainWithVolume } from "./core/option-service";
 import tastytradeApi from "./core/tastytrade-client";
 import johnsTestRun from "./bot/johns-test-run";
 import {
@@ -13,7 +11,6 @@ import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "
 import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
 import runBotCycle, { getRunCyclePreview } from "./bot/run-cycle";
-import { cancelAllLiveOrders } from "./bot/execute-position-evaluations";
 import seedSymbol from "./bot/seed-symbol";
 import purchaseSymbol from "./bot/purchase-symbol";
 import {
@@ -58,20 +55,20 @@ const commandHandlers: Record<string, CommandHandler> = {
   "core:getBidAskForSymbol": async ([symbol, timeoutMs]) => {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
-    return getBidAskForSymbol(symbol, parsedTimeout);
+    return tastytradeApi.johnsService.getBidAskForSymbol(symbol, parsedTimeout);
   },
   "core:getUnderlyingPrice": async ([symbol, timeoutMs]) => {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
-    return getUnderlyingPrice(symbol, parsedTimeout);
+    return tastytradeApi.johnsService.getUnderlyingPrice(symbol, parsedTimeout);
   },
   "core:cancelAllLiveOrders": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
-    return cancelAllLiveOrders(resolvedAccountNumber);
+    return tastytradeApi.johnsService.cancelAllLiveOrders(resolvedAccountNumber);
   },
   "core:fetchOptionChainWithVolume": async ([symbol]) => {
     assertArg(symbol, "symbol");
-    return fetchOptionChainWithVolume(symbol);
+    return tastytradeApi.johnsService.fetchOptionChainWithVolume(symbol);
   },
   "bot:getOptionCandidates": async ([symbol, side]) => {
     assertArg(symbol, "symbol");
