@@ -15,6 +15,34 @@ import {
 const DEFAULT_TOP_CANDIDATE_DTE_TOLERANCE = 7;
 const DEFAULT_OPTION_HEALTH_DTES = [7, 14, 30] as const;
 const DEFAULT_MAX_OPTION_SPREAD_PCT = 0.3;
+const DEFAULT_OPTION_MARKET_SNAPSHOT_TTL_MS = 30_000;
+
+type OptionChainWithVolume = Awaited<
+  ReturnType<typeof tastytradeApi.johnsService.fetchOptionChainWithVolume>
+>;
+
+type UnderlyingPriceResult = Awaited<
+  ReturnType<typeof tastytradeApi.johnsService.getUnderlyingPrice>
+>;
+
+interface CachedOptionMarketSnapshot {
+  cachedAt: number;
+  optionChain: OptionChainWithVolume;
+  underlyingPrice: UnderlyingPriceResult;
+}
+
+const optionMarketSnapshotCache = new Map<string, CachedOptionMarketSnapshot>();
+let optionMarketSnapshotCacheHitCount = 0;
+let optionMarketSnapshotCacheMissCount = 0;
+
+export interface OptionMarketSnapshotCacheStats {
+  cacheSize: number;
+  hitRate: number;
+  hits: number;
+  misses: number;
+  requests: number;
+  ttlMs: number;
+}
 
 export interface TopOptionCandidateForSymbolResult {
   askPrice?: number;
@@ -132,6 +160,80 @@ function getMaxOptionSpreadPct(): number {
   return parsed;
 }
 
+function getOptionMarketSnapshotTtlMs(): number {
+  const raw = process.env.BOT_OPTION_MARKET_SNAPSHOT_TTL_MS;
+  if (!raw) {
+    return DEFAULT_OPTION_MARKET_SNAPSHOT_TTL_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_OPTION_MARKET_SNAPSHOT_TTL_MS;
+  }
+
+  return parsed;
+}
+
+async function getOptionMarketSnapshot(
+  symbol: string,
+): Promise<{ optionChain: OptionChainWithVolume; underlyingPrice: number }> {
+  const normalizedSymbol = symbol.toUpperCase();
+  const ttlMs = getOptionMarketSnapshotTtlMs();
+  const now = Date.now();
+  const cached = optionMarketSnapshotCache.get(normalizedSymbol);
+
+  if (cached && now - cached.cachedAt <= ttlMs) {
+    optionMarketSnapshotCacheHitCount += 1;
+    return {
+      optionChain: cached.optionChain,
+      underlyingPrice: cached.underlyingPrice?.underlyingPrice || 0,
+    };
+  }
+
+  optionMarketSnapshotCacheMissCount += 1;
+
+  const [optionChain, underlyingPrice] = await Promise.all([
+    tastytradeApi.johnsService.fetchOptionChainWithVolume(normalizedSymbol),
+    tastytradeApi.johnsService.getUnderlyingPrice(normalizedSymbol),
+  ]);
+
+  optionMarketSnapshotCache.set(normalizedSymbol, {
+    cachedAt: now,
+    optionChain,
+    underlyingPrice,
+  });
+
+  return {
+    optionChain,
+    underlyingPrice: underlyingPrice?.underlyingPrice || 0,
+  };
+}
+
+export function getOptionMarketSnapshotCacheStats(): OptionMarketSnapshotCacheStats {
+  const requests = optionMarketSnapshotCacheHitCount + optionMarketSnapshotCacheMissCount;
+  const hitRate = requests > 0 ? optionMarketSnapshotCacheHitCount / requests : 0;
+
+  return {
+    cacheSize: optionMarketSnapshotCache.size,
+    hitRate,
+    hits: optionMarketSnapshotCacheHitCount,
+    misses: optionMarketSnapshotCacheMissCount,
+    requests,
+    ttlMs: getOptionMarketSnapshotTtlMs(),
+  };
+}
+
+export function resetOptionMarketSnapshotCacheStats(clearCache = false): OptionMarketSnapshotCacheStats {
+  optionMarketSnapshotCacheHitCount = 0;
+  optionMarketSnapshotCacheMissCount = 0;
+
+  if (clearCache) {
+    optionMarketSnapshotCache.clear();
+  }
+
+  return getOptionMarketSnapshotCacheStats();
+}
+
 function getSpreadStats(bid: number, ask: number) {
   const resolvedBid = bid > 0 ? bid : 0;
   const resolvedAsk = ask > 0 ? ask : resolvedBid;
@@ -153,9 +255,7 @@ function getSpreadStats(bid: number, ask: number) {
 async function buildTopOptionCandidateResult(
   symbol: string,
   side: "call" | "put",
-  optionChain: Awaited<
-    ReturnType<typeof tastytradeApi.johnsService.fetchOptionChainWithVolume>
-  >,
+  optionChain: OptionChainWithVolume,
   underlyingPrice: number,
   targetDTE?: number,
   selectionOptions?: OptionCandidateSelectionOptions,
@@ -270,17 +370,12 @@ export async function getTopOptionCandidateForSymbol(
   targetDTE?: number,
   selectionOptions?: OptionCandidateSelectionOptions,
 ): Promise<TopOptionCandidateForSymbolResult | undefined> {
-  const optionChain = await tastytradeApi.johnsService.fetchOptionChainWithVolume(
-    symbol,
-  );
-  const underlyingPrice = await tastytradeApi.johnsService.getUnderlyingPrice(
-    symbol,
-  );
+  const marketSnapshot = await getOptionMarketSnapshot(symbol);
   return await buildTopOptionCandidateResult(
     symbol,
     side,
-    optionChain,
-    underlyingPrice?.underlyingPrice || 0,
+    marketSnapshot.optionChain,
+    marketSnapshot.underlyingPrice,
     targetDTE,
     selectionOptions,
   );
@@ -292,13 +387,8 @@ export async function getOptionHealthForSymbol(
   targetDTEs: readonly number[] = DEFAULT_OPTION_HEALTH_DTES,
   targetDTEForEligibility?: number,
 ): Promise<OptionHealthForSymbolResult> {
-  const optionChain = await tastytradeApi.johnsService.fetchOptionChainWithVolume(
-    symbol,
-  );
-  const underlyingPrice = await tastytradeApi.johnsService.getUnderlyingPrice(
-    symbol,
-  );
-  const resolvedUnderlyingPrice = underlyingPrice?.underlyingPrice || 0;
+  const marketSnapshot = await getOptionMarketSnapshot(symbol);
+  const resolvedUnderlyingPrice = marketSnapshot.underlyingPrice;
   const normalizedSymbol = symbol.toUpperCase();
 
   const targetEntries = await Promise.all(
@@ -307,7 +397,7 @@ export async function getOptionHealthForSymbol(
       await buildTopOptionCandidateResult(
         normalizedSymbol,
         side,
-        optionChain,
+        marketSnapshot.optionChain,
         resolvedUnderlyingPrice,
         targetDTE,
       ),

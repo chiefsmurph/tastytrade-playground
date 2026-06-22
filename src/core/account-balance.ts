@@ -33,6 +33,16 @@ export function getEffectiveTotalCapital(accountBalance: TastytradeAccountBalanc
     accountBalance,
     "derivative-buying-power",
   );
+  const usedDerivativeBuyingPower = getAccountBalanceNumber(
+    accountBalance,
+    "used-derivative-buying-power",
+  );
+  const derivativeCapacity = derivativeBuyingPower + usedDerivativeBuyingPower;
+
+  if (derivativeCapacity > 0) {
+    return derivativeCapacity;
+  }
+
   if (derivativeBuyingPower > 0) {
     return derivativeBuyingPower;
   }

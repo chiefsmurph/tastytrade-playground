@@ -31,6 +31,7 @@ Optional runtime env values:
 - `TASTYTRADE_BOT_SOCKET` (override IPC socket path)
 - `BOT_RUN_INTERVAL_MS` (scheduler run interval in milliseconds while market is open)
 - `BOT_RUN_INTERVAL_MINUTES` (scheduler run interval in minutes; used when `BOT_RUN_INTERVAL_MS` is unset)
+- `BOT_OPTION_MARKET_SNAPSHOT_TTL_MS` (cache TTL for option chain + underlying snapshots used by candidate/health lookups; default `30000`, set `0` to disable cache)
 
 3. Type-check the project:
 
@@ -130,6 +131,8 @@ Supported IPC commands
 - `bot:getOptionCandidates <symbol> [call|put]`
 - `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
 - `bot:getOptionHealthForSymbol <symbol> [call|put] [targetDTE]`
+- `bot:getOptionMarketSnapshotCacheStats`
+- `bot:resetOptionMarketSnapshotCacheStats [clearCache=true|false]`
 - `bot:getCurrentAllocationBudget [accountNumber]`
 - `bot:getTimeOfDayExecutionTargets <HH:mm>`
 - `bot:getRecentRunHistory [limit]`

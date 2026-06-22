@@ -4,7 +4,9 @@ import path from "node:path";
 import tastytradeApi from "./core/tastytrade-client";
 import johnsTestRun from "./bot/johns-test-run";
 import {
+  getOptionMarketSnapshotCacheStats,
   getOptionHealthForSymbol,
+  resetOptionMarketSnapshotCacheStats,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
 import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "./bot/evaluate-trading-strategy";
@@ -113,6 +115,15 @@ const commandHandlers: Record<string, CommandHandler> = {
       undefined,
       parsedTargetDTE,
     );
+  },
+  "bot:getOptionMarketSnapshotCacheStats": async () => {
+    return getOptionMarketSnapshotCacheStats();
+  },
+  "bot:resetOptionMarketSnapshotCacheStats": async ([clearCache]) => {
+    const normalized = clearCache?.trim().toLowerCase();
+    const shouldClearCache =
+      normalized === "1" || normalized === "true" || normalized === "yes";
+    return resetOptionMarketSnapshotCacheStats(shouldClearCache);
   },
   "bot:getTimeOfDayExecutionTargets": async ([timeOfDay]) => {
     return getTargetsForPstTime(timeOfDay);
