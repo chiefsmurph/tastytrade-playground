@@ -13,6 +13,36 @@ export interface ExecutionTargets {
   askWeight: number;
 }
 
+function getMaxAskWeightForPositionSize(positionSizePct: number): number {
+  if (positionSizePct <= 0.15) {
+    return 0.50;
+  }
+
+  if (positionSizePct <= 0.30) {
+    return 0.75;
+  }
+
+  return 1.00;
+}
+
+export function applyPositionSizeWeightCaps(
+  targets: ExecutionTargets,
+  positionSizePct: number,
+): ExecutionTargets {
+  const normalizedPositionSize = Number.isFinite(positionSizePct)
+    ? Math.max(0, positionSizePct)
+    : 0;
+  const maxAskWeight = getMaxAskWeightForPositionSize(normalizedPositionSize);
+  const cappedAskWeight = Math.min(targets.askWeight, maxAskWeight);
+  const askReduction = Math.max(0, targets.askWeight - cappedAskWeight);
+
+  return {
+    ...targets,
+    askWeight: roundToTwoDecimals(cappedAskWeight),
+    midWeight: roundToTwoDecimals(targets.midWeight + askReduction),
+  };
+}
+
 export interface PositionMetrics {
   currentBidPrice: number;
   currentAskPrice: number;

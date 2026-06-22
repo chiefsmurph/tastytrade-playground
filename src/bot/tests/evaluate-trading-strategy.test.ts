@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  applyPositionSizeWeightCaps,
   getTimeOfDayExecutionTargets,
   getTimeOfDayExecutionTargetsForPstTime,
 } from "../evaluate-trading-strategy";
@@ -51,4 +52,52 @@ test("getTimeOfDayExecutionTargets boundary at 12:30 is fully risk-off", () => {
   assert.equal(targets.bidWeight, 0);
   assert.equal(targets.midWeight, 0);
   assert.equal(targets.askWeight, 0);
+});
+
+test("applyPositionSizeWeightCaps caps ask to 0.50 when position size is 15%", () => {
+  const adjusted = applyPositionSizeWeightCaps(
+    {
+      askWeight: 0.85,
+      bidWeight: 0.1,
+      midWeight: 0.05,
+      targetAccountExposure: 0.6,
+      targetDTE: 14,
+    },
+    0.15,
+  );
+
+  assert.equal(adjusted.askWeight, 0.5);
+  assert.equal(adjusted.midWeight, 0.4);
+});
+
+test("applyPositionSizeWeightCaps caps ask to 0.75 when position size is 30%", () => {
+  const adjusted = applyPositionSizeWeightCaps(
+    {
+      askWeight: 0.9,
+      bidWeight: 0.1,
+      midWeight: 0.0,
+      targetAccountExposure: 0.7,
+      targetDTE: 10,
+    },
+    0.30,
+  );
+
+  assert.equal(adjusted.askWeight, 0.75);
+  assert.equal(adjusted.midWeight, 0.15);
+});
+
+test("applyPositionSizeWeightCaps allows full ask at 50%+ position size", () => {
+  const adjusted = applyPositionSizeWeightCaps(
+    {
+      askWeight: 0.9,
+      bidWeight: 0.1,
+      midWeight: 0.2,
+      targetAccountExposure: 0.8,
+      targetDTE: 7,
+    },
+    0.50,
+  );
+
+  assert.equal(adjusted.askWeight, 0.9);
+  assert.equal(adjusted.midWeight, 0.2);
 });

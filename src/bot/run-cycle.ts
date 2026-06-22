@@ -4,6 +4,7 @@ import { AccountBalance } from "../core/types";
 import executePositionEvaluations, { cancelAllLiveOrders } from "./execute-position-evaluations";
 import { getPositionEvaluations } from "./get-position-evaluations";
 import {
+  applyPositionSizeWeightCaps,
   getDynamicTakeProfitTarget,
   getTimeOfDayExecutionTargets,
 } from "./evaluate-trading-strategy";
@@ -200,7 +201,7 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
   const completedEvaluations = await getPositionEvaluations(resolvedAccountNumber);
   const groupReturns = computeGroupReturns(completedEvaluations);
   const currentTime = new Date();
-  const runExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
+  const baseExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
   const dynamicTakeProfitTarget = getDynamicTakeProfitTarget(currentTime);
 
   const startingBudget = buildInitialBudget(
@@ -213,6 +214,10 @@ async function buildRunCycleContext(accountNumber?: string): Promise<RunCycleCon
     startingBudget.totalCapital > 0
       ? startingBudget.portfolioExposure / startingBudget.totalCapital
       : 0;
+  const runExecutionTargets = applyPositionSizeWeightCaps(
+    baseExecutionTargets,
+    currentExposurePct,
+  );
   const targetExposureValue =
     startingBudget.totalCapital * runExecutionTargets.targetAccountExposure;
 
