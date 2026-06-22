@@ -3,8 +3,7 @@ import {
   CurrentEquitiesSession,
   getCurrentEquitiesSession,
   isEquityOptionsMarketOpen,
-} from "../core/market-sessions";
-
+} from "~/core/market-sessions";
 const CLOSED_INTERVAL_MS = 60 * 1000;
 
 function getOpenIntervalMs(): number {

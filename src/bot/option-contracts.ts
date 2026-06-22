@@ -1,10 +1,10 @@
-import { getUnderlyingPrice } from "../core/market-data";
-import { fetchOptionChainWithVolume } from "../core/option-service";
+import { getUnderlyingPrice } from "~/core/market-data";
+import { fetchOptionChainWithVolume } from "~/core/option-service";
 import {
   OptionChain,
   OptionChainWithVolumes,
   StrikeWithVolumes,
-} from "../core/types";
+} from "~/core/types";
 
 const MIN_DTE = 28; // 4 weeks
 const MAX_DTE = 42; // 6 weeks

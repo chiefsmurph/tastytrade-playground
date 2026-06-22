@@ -1,25 +1,20 @@
-import { CurrentPosition } from "../../core/types";
+import { CurrentPosition } from "~/core/types";
+import type {
+  OrderRequest,
+  TastytradeInstrumentType,
+  TastytradeOrderAction,
+} from "~/core/types";
 import { PositionQuoteSnapshot } from "../evaluate-position";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
 
 export interface OrderLeg {
-  action: string;
+  action: TastytradeOrderAction;
   symbol: string;
   quantity: number;
-  "instrument-type": string;
+  "instrument-type": TastytradeInstrumentType;
 }
 
-export interface OrderPayload {
-  "advanced-instructions"?: {
-    "strict-position-effect-validation": boolean;
-  };
-  legs: OrderLeg[];
-  "order-type": "Limit" | "Market";
-  price?: string;
-  "price-effect"?: "Credit" | "Debit";
-  source: string;
-  "time-in-force": "Day" | "GTC";
-}
+export type OrderPayload = OrderRequest;
 
 export function getPositionQuantity(position: CurrentPosition): number {
   return Math.abs(Number(position.quantity) || 0);
@@ -37,11 +32,13 @@ export function isShortPosition(position: CurrentPosition): boolean {
   return position.cost_effect?.toLowerCase() === "credit";
 }
 
-export function getClosingAction(position: CurrentPosition): string {
+export function getClosingAction(position: CurrentPosition): TastytradeOrderAction {
   return isShortPosition(position) ? "Buy to Close" : "Sell to Close";
 }
 
-export function normalizeInstrumentType(instrumentType: string): string {
+export function normalizeInstrumentType(
+  instrumentType: string,
+): TastytradeInstrumentType {
   switch (instrumentType.trim().toLowerCase()) {
     case "equity":
       return "Equity";
@@ -56,7 +53,7 @@ export function normalizeInstrumentType(instrumentType: string): string {
     case "crypto":
       return "Cryptocurrency";
     default:
-      return instrumentType;
+      return instrumentType as TastytradeInstrumentType;
   }
 }
 

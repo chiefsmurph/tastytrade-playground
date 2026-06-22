@@ -1,4 +1,5 @@
-import tastytradeApi from "../../core/tastytrade-client";
+import tastytradeApi from "~/core/tastytrade-client";
+import type { PlacedOrderResponse } from "~/core/types";
 import { PositionGroupEvaluation } from "../evaluate-position";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
 import { buildClosingOrderPayload } from "./order-utils";
@@ -6,7 +7,7 @@ import { buildClosingOrderPayload } from "./order-utils";
 export interface ClosePositionResult {
   accountNumber: string;
   action: "CLOSE_POSITION";
-  orderResponse?: unknown;
+  orderResponse?: PlacedOrderResponse;
   placedOrder: boolean;
   skippedReason?: string;
   symbol: string;

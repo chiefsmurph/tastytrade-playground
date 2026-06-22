@@ -1,7 +1,7 @@
-import tastytradeApi from "../core/tastytrade-client";
-import { getBidAskForSymbol, getUnderlyingPrice } from "../core/market-data";
-import { fetchOptionChain } from "../core/option-service";
-import { CurrentPosition } from "../core/types";
+import tastytradeApi from "~/core/tastytrade-client";
+import { getBidAskForSymbol, getUnderlyingPrice } from "~/core/market-data";
+import { fetchOptionChain } from "~/core/option-service";
+import { CurrentPosition } from "~/core/types";
 import { chooseOptionCandidates } from "./option-contracts";
 
 export default async function johnsTestRun() {

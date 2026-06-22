@@ -1,5 +1,5 @@
-import { getUnderlyingPrice } from "../core/market-data";
-import { fetchOptionChainWithVolume } from "../core/option-service";
+import { getUnderlyingPrice } from "~/core/market-data";
+import { fetchOptionChainWithVolume } from "~/core/option-service";
 import {
   chooseOptionCandidates,
   getOptionCandidateVolume,

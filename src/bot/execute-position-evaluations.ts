@@ -1,9 +1,9 @@
 import {
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
-} from "../core/account-balance";
-import tastytradeApi from "../core/tastytrade-client";
-import { AccountBalance } from "../core/types";
+} from "~/core/account-balance";
+import tastytradeApi from "~/core/tastytrade-client";
+import { AccountBalance, Order } from "~/core/types";
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   ExecutionTargets,
@@ -18,16 +18,10 @@ import {
 } from "./actions/manage-allocation";
 import { getDefaultAccountNumber } from "../ipc-server";
 
-interface LiveOrder {
-  cancellable?: boolean;
-  id: number | string;
-  status?: string;
-}
-
 export interface CancelOrderResult {
   cancelled: boolean;
   orderId: number;
-  response?: unknown;
+  response?: Order;
   skippedReason?: string;
 }
 
@@ -49,9 +43,9 @@ export async function cancelAllLiveOrders(
 ): Promise<CancelOrderResult[]> {
 
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
-  const liveOrders = (await tastytradeApi.orderService.getLiveOrders(
+  const liveOrders = await tastytradeApi.orderService.getLiveOrders(
     resolvedAccountNumber,
-  )) as LiveOrder[];
+  );
 
   const results: CancelOrderResult[] = [];
   for (const order of liveOrders) {

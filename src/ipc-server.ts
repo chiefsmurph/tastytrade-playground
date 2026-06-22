@@ -15,6 +15,7 @@ import { getOptionCandidates } from "./bot/option-contracts";
 import runBotCycle, { getRunCyclePreview } from "./bot/run-cycle";
 import { cancelAllLiveOrders } from "./bot/execute-position-evaluations";
 import seedSymbol from "./bot/seed-symbol";
+import purchaseSymbol from "./bot/purchase-symbol";
 import {
   getMarketOpenSchedulerStatus,
   startMarketOpenScheduler,
@@ -98,6 +99,17 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     const normalizedSide = side === "put" ? "put" : "call";
     return seedSymbol(symbol, normalizedSide, accountNumber);
+  },
+  "bot:purchaseSymbol": async ([symbol, dollars, side, accountNumber]) => {
+    assertArg(symbol, "symbol");
+    assertArg(dollars, "dollars");
+    const requestedBudget = Number(dollars);
+    if (!Number.isFinite(requestedBudget) || requestedBudget <= 0) {
+      throw new Error("dollars must be a number greater than 0");
+    }
+
+    const normalizedSide = side === "put" ? "put" : "call";
+    return purchaseSymbol(symbol, requestedBudget, normalizedSide, accountNumber);
   },
   "bot:johnsTestRun": johnsTestRun,
   "bot:runCycle": async ([accountNumber]) => runBotCycle(accountNumber),

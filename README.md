@@ -112,6 +112,10 @@ node run bot:getRunCyclePreview
 node run bot:runCycle
 ```
 
+```bash
+node run bot:purchaseSymbol RUM 1000
+```
+
 Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
@@ -125,6 +129,7 @@ Supported IPC commands
 - `bot:getRecentRunHistory [limit]`
 - `bot:getRunCyclePreview [accountNumber]`
 - `bot:runCycle [accountNumber]`
+- `bot:purchaseSymbol <symbol> <dollars> [call|put] [accountNumber]`
 - `bot:getLastRunCycle`
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`

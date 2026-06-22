@@ -1,11 +1,12 @@
-import { getBidAskForSymbol } from "../core/market-data";
-import tastytradeApi from "../core/tastytrade-client";
-import { CurrentPosition } from "../core/types";
-import { getAccountBalanceNumber } from "../core/account-balance";
+import { getBidAskForSymbol } from "~/core/market-data";
+import tastytradeApi from "~/core/tastytrade-client";
+import { CurrentPosition } from "~/core/types";
+import { getAccountBalanceNumber } from "~/core/account-balance";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
 import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./actions/order-utils";
 import { ProgrammaticAction } from "./evaluate-trading-strategy";
+import type { PlacedOrderResponse } from "~/core/types";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
@@ -15,13 +16,13 @@ export interface SeedSymbolResult {
   buyingPowerAvailable?: number;
   candidateSymbol?: string;
   dte?: number;
-  dryRunResponse?: unknown;
+  dryRunResponse?: PlacedOrderResponse | unknown;
   estimatedOrderCost?: number;
   maxDTE?: number;
   minDTE?: number;
   preferredDTE?: number;
   quoteSymbol?: string;
-  orderResponse?: unknown;
+  orderResponse?: PlacedOrderResponse;
   placedOrder: boolean;
   side: "call" | "put";
   skippedReason?: string;
@@ -264,7 +265,7 @@ export async function seedSymbol(
     };
   }
 
-  let dryRunResponse: unknown;
+  let dryRunResponse: PlacedOrderResponse;
   try {
     dryRunResponse = await tastytradeApi.orderService.postOrderDryRun(
       resolvedAccountNumber,

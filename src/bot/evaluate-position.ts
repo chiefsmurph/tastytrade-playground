@@ -1,5 +1,5 @@
-import { getBidAskForSymbol } from "../core/market-data";
-import { CurrentPosition } from "../core/types";
+import { getBidAskForSymbol } from "~/core/market-data";
+import { CurrentPosition } from "~/core/types";
 import {
   buildExecutionStrategy,
   ExecutionTargets,

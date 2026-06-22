@@ -1,9 +1,9 @@
 import {
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
-} from "../../core/account-balance";
-import tastytradeApi from "../../core/tastytrade-client";
-import { getBidAskForSymbol } from "../../core/market-data";
+} from "~/core/account-balance";
+import tastytradeApi from "~/core/tastytrade-client";
+import { getBidAskForSymbol } from "~/core/market-data";
 import { getPositionEvaluations } from "../get-position-evaluations";
 import { PositionGroupEvaluation } from "../evaluate-position";
 import { getTopOptionCandidateForSymbol } from "../get-option-candidates-for-symbol";
@@ -15,15 +15,16 @@ import {
   roundOrderPrice,
 } from "./order-utils";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
+import type { PlacedOrderResponse } from "~/core/types";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 
-type AllocationRoute = "bid" | "mid" | "ask";
+export type AllocationRoute = "bid" | "mid" | "ask";
 
 export interface AllocationRouteResult {
   estimatedOrderValue: number;
   limitPrice: number;
-  orderResponse?: unknown;
+  orderResponse?: PlacedOrderResponse;
   placedOrder: boolean;
   quantity: number;
   route: AllocationRoute;
@@ -39,7 +40,7 @@ export interface AllocationExecutionResult {
   estimatedOrderValue?: number;
   maxDTE?: number;
   minDTE?: number;
-  orderResponses?: unknown[];
+  orderResponses?: PlacedOrderResponse[];
   placedOrder: boolean;
   preferredDTE?: number;
   quantity?: number;
@@ -75,7 +76,7 @@ function getMidpointPrice(bid: number, ask: number): number {
   return ask || bid;
 }
 
-function buildRouteOrders(
+export function buildRouteOrders(
   bid: number,
   ask: number,
   targets: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight">,
@@ -110,7 +111,7 @@ function buildRouteOrders(
   ].filter((routeOrder) => routeOrder.weight > 0 && routeOrder.limitPrice > 0);
 }
 
-function allocateContractsByWeight(
+export function allocateContractsByWeight(
   routeOrders: AllocationRouteResult[],
   availableCapital: number,
 ): AllocationRouteResult[] {
@@ -180,7 +181,7 @@ function allocateContractsByWeight(
   return routeOrders;
 }
 
-async function placeRouteOrders(
+export async function placeRouteOrders(
   accountNumber: string,
   candidateSymbol: string,
   routeOrders: AllocationRouteResult[],
@@ -409,8 +410,11 @@ export async function manageAllocationForGroup(
     maxDTE: candidate.maxDTE,
     minDTE: candidate.minDTE,
     orderResponses: placedRouteOrders
-      .filter((routeOrder) => routeOrder.orderResponse != null)
-      .map((routeOrder) => routeOrder.orderResponse),
+      .map((routeOrder) => routeOrder.orderResponse)
+      .filter(
+        (orderResponse): orderResponse is PlacedOrderResponse =>
+          orderResponse != null,
+      ),
     placedOrder: placedRouteOrders.some((routeOrder) => routeOrder.placedOrder),
     preferredDTE: candidate.preferredDTE,
     quantity,

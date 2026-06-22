@@ -1,15 +1,15 @@
-import tastytradeApi from "../core/tastytrade-client";
-import { CurrentPosition } from "../core/types";
+import tastytradeApi from "~/core/tastytrade-client";
+import { CurrentPosition } from "~/core/types";
 import {
   evaluatePositionGroup,
   groupPositionsByUnderlying,
   PositionGroupEvaluation,
 } from "./evaluate-position";
 
-export async function getPositionEvaluations(accountNumber: string): Promise<
-  PositionGroupEvaluation[]
-> {
-  const currentPositions: CurrentPosition[] =
+export async function getPositionEvaluations(
+  accountNumber: string,
+): Promise<PositionGroupEvaluation[]> {
+  const currentPositions =
     await tastytradeApi.balancesAndPositionsService.getPositionsList(
       accountNumber,
     );
