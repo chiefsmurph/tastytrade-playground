@@ -56,6 +56,7 @@ export interface RunHistoryEntry {
     dynamicTakeProfitTarget: number;
     currentExposurePct: number;
     currentExposureValue: number;
+    secondsSinceLastPositionsUpdate: number | null;
     routeWeights: {
       ask: number;
       bid: number;

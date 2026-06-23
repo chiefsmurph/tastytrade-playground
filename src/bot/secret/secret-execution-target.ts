@@ -243,7 +243,7 @@ export interface SecretSocketStatus {
   connected: boolean;
   hasConnected: boolean;
   lastPositionsUpdateAt: string | null;
-  millisecondsSinceLastPositionsUpdate: number | null;
+  secondsSinceLastPositionsUpdate: number | null;
   moduleEnabled: boolean;
   positionsSourceKey: string | null;
   socketTimeoutMs: number | null;
@@ -263,9 +263,9 @@ export function getSecretSocketStatus(): SecretSocketStatus {
     hasConnected: hasConnectedSecretSocket,
     lastPositionsUpdateAt:
       moduleEnabled ? lastSecretPositionsUpdateAt?.toISOString() ?? null : null,
-    millisecondsSinceLastPositionsUpdate:
+    secondsSinceLastPositionsUpdate:
       moduleEnabled && lastSecretPositionsUpdateAt
-      ? Math.max(0, now - lastSecretPositionsUpdateAt.getTime())
+      ? Math.max(0, (now - lastSecretPositionsUpdateAt.getTime()) / 1000)
       : null,
     moduleEnabled,
     positionsSourceKey,

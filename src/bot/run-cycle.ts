@@ -31,6 +31,7 @@ import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   getCachedSecretSourcePositions,
   startSecretSocketConnection,
+  getSecretSocketStatus,
 } from "./secret";
 import { buildGroupExecutionTargets } from "./group-execution-targets";
 
@@ -52,6 +53,7 @@ export interface RunCyclePreview {
     dynamicTakeProfitTarget: number;
     currentExposurePct: number;
     currentExposureValue: number;
+    secondsSinceLastPositionsUpdate: number | null;
     routeWeights: {
       ask: number;
       bid: number;
@@ -99,6 +101,12 @@ function formatPercent(value: number): string {
 }
 
 function logRunSnapshot(preview: RunCyclePreview): void {
+  const secretStatus = getSecretSocketStatus();
+  const secondsSinceLastPositionsUpdate =
+    secretStatus.secondsSinceLastPositionsUpdate === null
+      ? "n/a"
+      : `${secretStatus.secondsSinceLastPositionsUpdate.toFixed(1)}s`;
+
   console.log("\n================ RUN SNAPSHOT ================");
   console.log(
     `Current Exposure: ${formatPercent(preview.snapshot.currentExposurePct)} (${formatCurrency(preview.snapshot.currentExposureValue)} of ${formatCurrency(preview.snapshot.totalCapital)})`,
@@ -112,6 +120,9 @@ function logRunSnapshot(preview: RunCyclePreview): void {
   );
   console.log(
     `Route Weights:    bid=${preview.snapshot.routeWeights.bid.toFixed(2)} mid=${preview.snapshot.routeWeights.mid.toFixed(2)} ask=${preview.snapshot.routeWeights.ask.toFixed(2)}`,
+  );
+  console.log(
+    `Secret Socket:    connected=${secretStatus.connected} positions=${secretStatus.cachedPositionsCount} secondsSinceLastPositionsUpdate=${secondsSinceLastPositionsUpdate}`,
   );
   console.log("===============================================\n");
 }
@@ -244,6 +255,12 @@ function logExecutionTargetsByGroup(
     return;
   }
 
+  const { secondsSinceLastPositionsUpdate } = getSecretSocketStatus();
+  const secretPositionsAge =
+    secondsSinceLastPositionsUpdate === null
+      ? "n/a"
+      : `${secondsSinceLastPositionsUpdate.toFixed(1)}s`;
+
   for (const evaluation of manageAllocations) {
     const weightedAverageFill = evaluation.metrics.weightedAverageFill;
     const askReturnPerc =
@@ -282,7 +299,7 @@ function logExecutionTargetsByGroup(
     }
     if (secretGroupTargets) {
       console.log(
-        `  Secret Targets (ticker match): buyWeight=${secretBuyWeight ?? "n/a"}, exp=${formatPercent(secretGroupTargets.targetAccountExposure)}, bid=${secretGroupTargets.bidWeight.toFixed(2)}/mid=${secretGroupTargets.midWeight.toFixed(2)}/ask=${secretGroupTargets.askWeight.toFixed(2)}`,
+        `  Secret Targets (ticker match): buyWeight=${secretBuyWeight ?? "n/a"}, positionsAge=${secretPositionsAge}, exp=${formatPercent(secretGroupTargets.targetAccountExposure)}, bid=${secretGroupTargets.bidWeight.toFixed(2)}/mid=${secretGroupTargets.midWeight.toFixed(2)}/ask=${secretGroupTargets.askWeight.toFixed(2)}`,
       );
     } else {
       console.log("  Secret Targets (ticker match): unavailable for this symbol");
@@ -421,6 +438,7 @@ async function buildRunCycleContext(
   console.log(
     `[secret] cached source positions: ${cachedSecretPositions.length}`,
   );
+  const secretSocketStatus = getSecretSocketStatus();
   const baseExecutionTargets = timeOfDayExecutionTargets;
   const dynamicTakeProfitTarget = getDynamicTakeProfitTarget(currentTime);
 
@@ -560,6 +578,8 @@ async function buildRunCycleContext(
         dynamicTakeProfitTarget,
         currentExposurePct,
         currentExposureValue: startingBudget.portfolioExposure,
+        secondsSinceLastPositionsUpdate:
+          secretSocketStatus.secondsSinceLastPositionsUpdate,
         routeWeights: {
           ask: snapshotExecutionTargets.askWeight,
           bid: snapshotExecutionTargets.bidWeight,
