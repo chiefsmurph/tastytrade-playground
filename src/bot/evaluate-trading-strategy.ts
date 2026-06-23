@@ -253,6 +253,103 @@ export function getTimeOfDayExecutionTargetsForPstTime(
   return getTimeOfDayExecutionTargetsForMinute(timeInMinutes);
 }
 
+export function getPositionGroupExecutionTargets(
+  askReturnPerc: number,
+  timeSinceLastActionMs: number,
+  currentTime: Date,
+): ExecutionTargets {
+  // Scale targetExposureValue based on time since last action
+  // 20 min → 40%, 60 min → 70%, 120+ min (2 hrs) → cap at 85%
+  const timeSinceLastActionMinutes = timeSinceLastActionMs / (1000 * 60);
+  const MIN_EXPOSURE = 0.40;
+  const MAX_EXPOSURE = 0.85;
+  const MIN_TIME_MINUTES = 20;
+  const MAX_TIME_MINUTES = 120;
+  
+  let targetExposure = MIN_EXPOSURE;
+  if (timeSinceLastActionMinutes >= MIN_TIME_MINUTES) {
+    const timeRatio = Math.min(
+      1,
+      (timeSinceLastActionMinutes - MIN_TIME_MINUTES) /
+        (MAX_TIME_MINUTES - MIN_TIME_MINUTES),
+    );
+    targetExposure = MIN_EXPOSURE + (MAX_EXPOSURE - MIN_EXPOSURE) * timeRatio;
+  }
+
+  // Scale weights based on askReturnPerc aggressiveness
+  // More negative (losing) → more aggressive (higher askWeight, lower bidWeight)
+  // askReturnPerc = -0.20 (down 20%) → very aggressive
+  // askReturnPerc = 0.00 (at cost) → neutral
+  // askReturnPerc = 0.10 (up 10%) → conservative
+  const aggressivenessFactor = Math.max(-1, Math.min(0.5, -askReturnPerc));
+  // aggressivenessFactor: at -0.20 → 0.20, at 0 → 0, at 0.10 → -0.10 (clamped to 0)
+
+  // Start with base weighted split
+  let askWeight = 0.33;
+  let midWeight = 0.33;
+  let bidWeight = 0.33;
+
+  // When losing (negative askReturnPerc), shift weights toward higher prices
+  // to reduce cost basis
+  if (aggressivenessFactor > 0) {
+    // Shift from bid to ask, keeping mid stable
+    const bidReduction = 0.25 * aggressivenessFactor;
+    const askIncrease = 0.25 * aggressivenessFactor;
+    askWeight = Math.min(0.75, 0.33 + askIncrease);
+    bidWeight = Math.max(0.05, 0.33 - bidReduction);
+    midWeight = roundToTwoDecimals(1 - askWeight - bidWeight);
+  }
+
+  // Get time-of-day base targets for DTE
+  const timeOfDayTargets = getTimeOfDayExecutionTargets(currentTime);
+
+  return {
+    targetDTE: timeOfDayTargets.targetDTE,
+    targetAccountExposure: roundToTwoDecimals(targetExposure),
+    bidWeight: roundToTwoDecimals(bidWeight),
+    midWeight: roundToTwoDecimals(midWeight),
+    askWeight: roundToTwoDecimals(askWeight),
+  };
+}
+
+export function averageExecutionTargets(
+  targets: ExecutionTargets[],
+): ExecutionTargets {
+  if (targets.length === 0) {
+    return {
+      targetDTE: 30,
+      targetAccountExposure: 0.50,
+      bidWeight: 0.33,
+      midWeight: 0.33,
+      askWeight: 0.33,
+    };
+  }
+
+  const avgDTE = Math.round(
+    targets.reduce((sum, t) => sum + t.targetDTE, 0) / targets.length,
+  );
+  const avgExposure = roundToTwoDecimals(
+    targets.reduce((sum, t) => sum + t.targetAccountExposure, 0) / targets.length,
+  );
+  const avgBidWeight = roundToTwoDecimals(
+    targets.reduce((sum, t) => sum + t.bidWeight, 0) / targets.length,
+  );
+  const avgMidWeight = roundToTwoDecimals(
+    targets.reduce((sum, t) => sum + t.midWeight, 0) / targets.length,
+  );
+  const avgAskWeight = roundToTwoDecimals(
+    targets.reduce((sum, t) => sum + t.askWeight, 0) / targets.length,
+  );
+
+  return {
+    targetDTE: avgDTE,
+    targetAccountExposure: avgExposure,
+    bidWeight: avgBidWeight,
+    midWeight: avgMidWeight,
+    askWeight: avgAskWeight,
+  };
+}
+
 export function buildExecutionStrategy(metrics: PositionMetrics): ExecutionStrategy {
   return evaluateTradingStrategy(metrics);
 }

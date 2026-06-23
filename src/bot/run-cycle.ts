@@ -10,8 +10,10 @@ import executePositionEvaluations, {
 import { getPositionEvaluations } from "./get-position-evaluations";
 import {
   applyPositionSizeWeightCaps,
+  averageExecutionTargets,
   getDynamicTakeProfitTarget,
   getTimeOfDayExecutionTargets,
+  getPositionGroupExecutionTargets,
 } from "./evaluate-trading-strategy";
 import { setLastBotRunState } from "./last-run-state";
 import {
@@ -65,6 +67,7 @@ export interface RunCyclePreview {
 type RunCycleContext = {
   accountBalances: TastytradeAccountBalance;
   completedEvaluations: PositionGroupEvaluation[];
+  evaluationsWithGroupTargets: PositionGroupEvaluation[];
   preview: RunCyclePreview;
   runExecutionTargets: {
     askWeight: number;
@@ -203,6 +206,67 @@ function logStrategyDecisions(strategyDecisions: RunStrategyDecision[]): void {
   console.log("\n========================================\n");
 }
 
+function logExecutionTargetsByGroup(
+  evaluations: PositionGroupEvaluation[],
+  currentTime: Date,
+): void {
+  console.log("\n=== EXECUTION TARGETS BY GROUP ===");
+
+  const manageAllocations = evaluations.filter(
+    (e) => e.strategy.action === "MANAGE_ALLOCATION",
+  );
+
+  if (manageAllocations.length === 0) {
+    console.log("No MANAGE_ALLOCATION groups to show.");
+    console.log("===================================\n");
+    return;
+  }
+
+  for (const evaluation of manageAllocations) {
+    const weightedAverageFill = evaluation.metrics.weightedAverageFill;
+    const askReturnPerc =
+      weightedAverageFill > 0
+        ? (evaluation.metrics.currentAskPrice - weightedAverageFill) / weightedAverageFill
+        : 0;
+    const timeSinceLastActionMs =
+      currentTime.getTime() - evaluation.metrics.lastActionTime.getTime();
+    const timeSinceLastActionMinutes = timeSinceLastActionMs / (1000 * 60);
+
+    const groupTargets = getPositionGroupExecutionTargets(
+      askReturnPerc,
+      timeSinceLastActionMs,
+      currentTime,
+    );
+
+    const baseTimeOfDayTargets = getTimeOfDayExecutionTargets(currentTime);
+    const blendedTargets = averageExecutionTargets([
+      baseTimeOfDayTargets,
+      groupTargets,
+    ]);
+
+    console.log(`\n${evaluation.underlyingSymbol}`);
+    console.log(
+      `  Position Health: ask_return=${formatPercent(askReturnPerc)}, stale=${timeSinceLastActionMinutes.toFixed(1)}min`,
+    );
+    console.log(
+      `  Group Targets (position-based): exp=${formatPercent(groupTargets.targetAccountExposure)}, bid=${groupTargets.bidWeight.toFixed(2)}/mid=${groupTargets.midWeight.toFixed(2)}/ask=${groupTargets.askWeight.toFixed(2)}`,
+    );
+    console.log(
+      `  Time-of-Day Base: exp=${formatPercent(baseTimeOfDayTargets.targetAccountExposure)}, bid=${baseTimeOfDayTargets.bidWeight.toFixed(2)}/mid=${baseTimeOfDayTargets.midWeight.toFixed(2)}/ask=${baseTimeOfDayTargets.askWeight.toFixed(2)}`,
+    );
+    console.log(
+      `  Blended (averaged): exp=${formatPercent(blendedTargets.targetAccountExposure)}, bid=${blendedTargets.bidWeight.toFixed(2)}/mid=${blendedTargets.midWeight.toFixed(2)}/ask=${blendedTargets.askWeight.toFixed(2)}`,
+    );
+    if (evaluation.executionTargets) {
+      console.log(
+        `  Final (post-caps):  exp=${formatPercent(evaluation.executionTargets.targetAccountExposure)}, bid=${evaluation.executionTargets.bidWeight.toFixed(2)}/mid=${evaluation.executionTargets.midWeight.toFixed(2)}/ask=${evaluation.executionTargets.askWeight.toFixed(2)}`,
+      );
+    }
+  }
+
+  console.log("\n===================================\n");
+}
+
 function computeGroupReturns(
   completedEvaluations: PositionGroupEvaluation[],
 ): RunGroupReturn[] {
@@ -333,16 +397,52 @@ async function buildRunCycleContext(
     baseExecutionTargets,
     currentExposurePct,
   );
-  const targetExposureValue =
-    startingBudget.totalCapital * runExecutionTargets.targetAccountExposure;
 
-  const plannedManageEvaluations = completedEvaluations
-    .map((evaluation) => ({
+  // Calculate per-group execution targets based on position stats
+  const evaluationsWithGroupTargets = completedEvaluations.map((evaluation) => {
+    const weightedAverageFill = evaluation.metrics.weightedAverageFill;
+    const askReturnPerc =
+      weightedAverageFill > 0
+        ? (evaluation.metrics.currentAskPrice - weightedAverageFill) / weightedAverageFill
+        : 0;
+    const timeSinceLastActionMs =
+      currentTime.getTime() - evaluation.metrics.lastActionTime.getTime();
+
+    // Get position group-based targets
+    const groupTargets = getPositionGroupExecutionTargets(
+      askReturnPerc,
+      timeSinceLastActionMs,
+      currentTime,
+    );
+
+    // Average with time-of-day targets
+    const blendedTargets = averageExecutionTargets([baseExecutionTargets, groupTargets]);
+
+    // Apply position size caps
+    const finalTargets = applyPositionSizeWeightCaps(blendedTargets, currentExposurePct);
+
+    return {
       ...evaluation,
-      executionTargets: runExecutionTargets,
-    }))
+      executionTargets: finalTargets,
+    };
+  });
+
+  const plannedManageEvaluations = evaluationsWithGroupTargets
     .filter((evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION")
     .sort((a, b) => a.currentReturn - b.currentReturn);
+
+  // For snapshot, use average of all planned group targets
+  const plannedGroupTargets = plannedManageEvaluations
+    .map((e) => e.executionTargets)
+    .filter((t): t is typeof runExecutionTargets => Boolean(t));
+  
+  const snapshotExecutionTargets =
+    plannedGroupTargets.length > 0
+      ? averageExecutionTargets(plannedGroupTargets)
+      : runExecutionTargets;
+
+  const targetExposureValue =
+    startingBudget.totalCapital * snapshotExecutionTargets.targetAccountExposure;
 
   const plannedRows: RunPlanRow[] = [];
   const planDiagnostics: RunCyclePreview["plan"]["diagnostics"] = [];
@@ -403,6 +503,7 @@ async function buildRunCycleContext(
   return {
     accountBalances,
     completedEvaluations,
+    evaluationsWithGroupTargets,
     preview: {
       accountNumber: resolvedAccountNumber,
       groups: groupReturns,
@@ -420,12 +521,12 @@ async function buildRunCycleContext(
         currentExposurePct,
         currentExposureValue: startingBudget.portfolioExposure,
         routeWeights: {
-          ask: runExecutionTargets.askWeight,
-          bid: runExecutionTargets.bidWeight,
-          mid: runExecutionTargets.midWeight,
+          ask: snapshotExecutionTargets.askWeight,
+          bid: snapshotExecutionTargets.bidWeight,
+          mid: snapshotExecutionTargets.midWeight,
         },
-        targetDTE: runExecutionTargets.targetDTE,
-        targetExposurePct: runExecutionTargets.targetAccountExposure,
+        targetDTE: snapshotExecutionTargets.targetDTE,
+        targetExposurePct: snapshotExecutionTargets.targetAccountExposure,
         targetExposureValue,
         totalCapital: startingBudget.totalCapital,
       },
@@ -438,7 +539,7 @@ async function buildRunCycleContext(
         ).length,
       },
     },
-    runExecutionTargets,
+    runExecutionTargets: snapshotExecutionTargets,
     strategyDecisions,
   };
 }
@@ -462,6 +563,7 @@ export async function runBotCycleLogOnly(
 
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
+  logExecutionTargetsByGroup(context.evaluationsWithGroupTargets, new Date());
   logRunPlan(context.preview);
   logStrategyDecisions(context.strategyDecisions);
 
@@ -482,6 +584,7 @@ export default async function runBotCycle(
 
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
+  logExecutionTargetsByGroup(context.evaluationsWithGroupTargets, new Date());
   logRunPlan(context.preview);
   logStrategyDecisions(context.strategyDecisions);
 
