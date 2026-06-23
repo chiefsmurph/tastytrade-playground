@@ -1,5 +1,9 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
+import {
+  evaluateOptionHealthForTargetDTE,
+  getOptionHealthForSymbol,
+  getTopOptionCandidateForSymbol,
+} from "./get-option-candidates-for-symbol";
 import { getEffectiveBuyingPowerSummary } from "./effective-buying-power";
 import {
   allocateContractsByWeight,
@@ -7,9 +11,9 @@ import {
   buildRouteOrders,
   placeRouteOrders,
 } from "./actions/manage-allocation";
-import { ExecutionTargets } from "./evaluate-trading-strategy";
+import { getTimeOfDayExecutionTargets } from "./evaluate-trading-strategy";
 
-const EQUAL_ROUTE_TARGETS: Pick<ExecutionTargets, "bidWeight" | "midWeight" | "askWeight"> = {
+const EQUAL_ROUTE_TARGETS = {
   askWeight: 0.33,
   bidWeight: 0.33,
   midWeight: 0.33,
@@ -57,9 +61,34 @@ export async function purchaseSymbol(
 ): Promise<PurchaseSymbolResult> {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
   const normalizedSymbol = symbol.toUpperCase();
+  const executionTargets = getTimeOfDayExecutionTargets(new Date());
 
   if (!(requestedBudget > 0)) {
     throw new Error("requestedBudget must be greater than 0");
+  }
+
+  const healthResult = await getOptionHealthForSymbol(
+    normalizedSymbol,
+    side,
+  );
+  const healthGate = evaluateOptionHealthForTargetDTE(
+    healthResult.summary,
+    executionTargets.targetDTE,
+  );
+
+  if (!healthGate.passed) {
+    return {
+      accountNumber: resolvedAccountNumber,
+      effectiveBudget: 0,
+      placedOrder: false,
+      requestedBudget,
+      routeOrders: [],
+      side,
+      skippedReason: `option health gate failed for target DTE ${executionTargets.targetDTE}; missing healthy checkpoints: ${healthGate.missingRequiredTargets.join(", ")}`,
+      symbol: normalizedSymbol,
+      totalEstimatedOrderValue: 0,
+      totalQuantity: 0,
+    };
   }
 
   const candidate = await getTopOptionCandidateForSymbol(normalizedSymbol, side);
