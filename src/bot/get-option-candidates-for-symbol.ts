@@ -311,7 +311,7 @@ async function buildTopOptionCandidateResult(
       meetsSpreadRequirement,
       quoteSymbol,
       requestedSide: side,
-      strategy: defaultSelection?.strategy,
+      strategy: defaultSelection?.strategy?.action,
       usedDteFallback,
     };
 
@@ -345,7 +345,7 @@ async function buildTopOptionCandidateResult(
       preferredDTE,
       requestedSide: side,
       skippedReason: "no candidate found for target",
-      strategy: defaultSelection?.strategy,
+      strategy: defaultSelection?.strategy?.action,
       usedDteFallback,
     };
   }
@@ -359,7 +359,7 @@ async function buildTopOptionCandidateResult(
     preferredDTE,
     skippedReason: "candidate quote symbol unavailable",
     requestedSide: side,
-    strategy: defaultSelection?.strategy,
+    strategy: defaultSelection?.strategy?.action,
     usedDteFallback,
   };
 }

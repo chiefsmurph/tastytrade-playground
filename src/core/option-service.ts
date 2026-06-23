@@ -151,7 +151,6 @@ export async function fetchOptionVolumes(
   sampleMs = 5000,
 ) {
   try {
-    console.log(JSON.stringify({ nested: optionChain }, null, 2));
     const streamerSymbols = new Set<string>();
     function collect(obj: any) {
       if (!obj || typeof obj !== "object") return;
@@ -165,7 +164,6 @@ export async function fetchOptionVolumes(
     }
     collect(optionChain);
     const resolvedStreamerSymbols = Array.from(streamerSymbols);
-    console.log({ streamerSymbols: resolvedStreamerSymbols });
 
     if (resolvedStreamerSymbols.length === 0) {
       console.warn(
@@ -213,19 +211,10 @@ export async function fetchOptionVolumes(
         const arr = Array.isArray(events) ? events : [events];
         for (const ev of arr) {
           rawEventCount += 1;
-          if (rawEventCount <= 10) console.log("raw event:", ev);
 
           try {
             const parsed = extractVolumeFromEvent(ev);
             if (parsed && parsed.symbol && typeof parsed.volume === "number") {
-              console.log(
-                "parsed volume from",
-                parsed.source,
-                "symbol:",
-                parsed.symbol,
-                "volume:",
-                parsed.volume,
-              );
                 volumes[parsed.symbol] = Math.max(
                   volumes[parsed.symbol] || 0,
                   parsed.volume,
@@ -339,29 +328,6 @@ export async function fetchOptionChainWithVolume(symbol: string) {
     (sum, expiration) => sum + expiration.strikes.length,
     0,
   );
-  console.log(
-    `Option chain for ${symbol}`,
-    JSON.stringify(optionChain, null, 2),
-  );
-  console.log(
-    JSON.stringify({
-      scope: "option-volume-sampling-filter",
-      symbol,
-      totalExpirations: optionChain.expirations.length,
-      sampledExpirations: filteredForVolumeSampling.expirations.length,
-      totalStrikes: totalStrikeCount,
-      sampledStrikes: sampledStrikeCount,
-      mandatoryCandidateSampleStrikes:
-        mandatoryCandidateSamplingChain.expirations.reduce(
-          (sum, expiration) => sum + expiration.strikes.length,
-          0,
-        ),
-      maxDte: MAX_VOLUME_SAMPLE_DTE,
-      maxStrikeDistanceRatio: MAX_STRIKE_DISTANCE_RATIO_FOR_VOLUME,
-      maxStrikesPerExpiration: MAX_STRIKES_PER_EXPIRATION_FOR_VOLUME,
-      underlyingPrice: underlyingPrice?.underlyingPrice ?? null,
-    }),
-  );
   const optionVolumes = await fetchOptionVolumes(filteredForVolumeSampling, 5000);
   const mandatoryCandidateVolumes = await fetchOptionVolumes(
     mandatoryCandidateSamplingChain,
@@ -369,9 +335,5 @@ export async function fetchOptionChainWithVolume(symbol: string) {
   );
   const mergedOptionVolumes = mergeVolumeMaps(optionVolumes, mandatoryCandidateVolumes);
   const merged = mergeVolumesIntoChain(optionChain, mergedOptionVolumes);
-  console.log(
-    "Merged option chain with volumes:",
-    JSON.stringify(merged, null, 2),
-  );
   return merged;
 }
