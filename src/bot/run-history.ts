@@ -24,6 +24,7 @@ export interface RunGroupReturn {
 export interface RunStrategyDecision {
   currentReturnPct: number;
   strategyAction: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
+  reason: string;
   underlyingSymbol: string;
 }
 

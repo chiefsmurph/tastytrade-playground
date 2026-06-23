@@ -184,6 +184,25 @@ function logGroupReturns(groupReturns: RunGroupReturn[]): void {
   console.log("===========================================\n");
 }
 
+function logStrategyDecisions(strategyDecisions: RunStrategyDecision[]): void {
+  console.log("\n========== STRATEGY DECISIONS ===========");
+
+  if (strategyDecisions.length === 0) {
+    console.log("No strategy decisions available.");
+    console.log("========================================\n");
+    return;
+  }
+
+  for (const decision of strategyDecisions) {
+    console.log(`\n${decision.underlyingSymbol}`);
+    console.log(`  Action: ${decision.strategyAction}`);
+    console.log(`  Return: ${formatPercent(decision.currentReturnPct)}`);
+    console.log(`  Reason: ${decision.reason}`);
+  }
+
+  console.log("\n========================================\n");
+}
+
 function computeGroupReturns(
   completedEvaluations: PositionGroupEvaluation[],
 ): RunGroupReturn[] {
@@ -238,6 +257,7 @@ function computeStrategyDecisions(
   return completedEvaluations
     .map((evaluation) => ({
       currentReturnPct: evaluation.currentReturn,
+      reason: evaluation.strategy.reason,
       strategyAction: evaluation.strategy.action,
       underlyingSymbol: evaluation.underlyingSymbol,
     }))
@@ -443,6 +463,7 @@ export async function runBotCycleLogOnly(
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
   logRunPlan(context.preview);
+  logStrategyDecisions(context.strategyDecisions);
 
   return context.preview;
 }
@@ -462,6 +483,7 @@ export default async function runBotCycle(
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
   logRunPlan(context.preview);
+  logStrategyDecisions(context.strategyDecisions);
 
   const executionResults = await executePositionEvaluations(
     context.preview.accountNumber,

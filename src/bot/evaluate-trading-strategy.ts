@@ -3,6 +3,7 @@ export type ProgrammaticAction = "MANAGE_ALLOCATION" | "CLOSE_POSITION";
 // Unified return structure containing target state goals for the execution loop
 export interface ExecutionStrategy {
   action: ProgrammaticAction;
+  reason: string;
 }
 
 export interface ExecutionTargets {
@@ -94,8 +95,8 @@ function getTimeInMinutes(currentTime: Date): number {
  * Tracks the state targets of the portfolio. If the action is MANAGE_ALLOCATION,
  * the broker pipeline should inspect exposure and execute buy orders accordingly.
  */
-export function evaluateTradingStrategy(metrics: PositionMetrics): ProgrammaticAction {
-  const { currentBidPrice, weightedAverageFill, currentTime } = metrics;
+export function evaluateTradingStrategy(metrics: PositionMetrics): ExecutionStrategy {
+  const { currentBidPrice, weightedAverageFill, currentTime, lastActionTime } = metrics;
 
   // 1. SYSTEM CLOCK CONVERSIONS (Pacific Standard Time - Minutes from midnight)
   const timeInMinutes = getTimeInMinutes(currentTime);
@@ -106,29 +107,55 @@ export function evaluateTradingStrategy(metrics: PositionMetrics): ProgrammaticA
   const currentReturn = (currentBidPrice - weightedAverageFill) / weightedAverageFill;
 
   // 2. HARD CIRCUIT BREAKERS (EOD Liquidation & Risk Floors)
+
   if (timeInMinutes >= TWELVE_FIFTY_FIVE_PM) {
-    return "CLOSE_POSITION"; // Liquidate instantly
+    return {
+      action: "CLOSE_POSITION",
+      reason: "Market closed or closing - liquidate all positions immediately"
+    };
   }
 
   // Take Profit Target Gate
   const dynamicTakeProfitTarget = getDynamicTakeProfitTarget(currentTime);
   if (currentReturn >= dynamicTakeProfitTarget) {
-    return "CLOSE_POSITION";
+    return {
+      action: "CLOSE_POSITION",
+      reason: `Profit target reached (${(currentReturn * 100).toFixed(2)}% >= ${(dynamicTakeProfitTarget * 100).toFixed(2)}%) - close position and lock in gains`
+    };
+  }
+
+  // Minimum 10-minute cooldown since last action
+  const timeSinceLastActionMs = currentTime.getTime() - lastActionTime.getTime();
+  const timeSinceLastActionMinutes = timeSinceLastActionMs / (1000 * 60);
+  if (timeSinceLastActionMinutes < 10) {
+    return {
+      action: "MANAGE_ALLOCATION",
+      reason: `Still in cooldown period (${timeSinceLastActionMinutes.toFixed(1)} min < 10 min) - no new actions yet`
+    };
   }
 
   // Absolute Risk Floor Check
   if (timeInMinutes < TWELVE_THIRTY_PM && currentReturn <= -0.30) {
-    return "CLOSE_POSITION";
+    return {
+      action: "CLOSE_POSITION",
+      reason: `Hit absolute loss limit (${(currentReturn * 100).toFixed(2)}% <= -30%) - stop loss triggered`
+    };
   }
 
   // 4. BLOCK ALL NEW ACCUMULATION PAST THE 12:30 PM LINE
   if (timeInMinutes >= TWELVE_THIRTY_PM) {
     if (currentReturn <= -0.10) {
-      return "CLOSE_POSITION"; // End-of-day risk compression
+      return {
+        action: "CLOSE_POSITION",
+        reason: `End-of-day risk management (${(currentReturn * 100).toFixed(2)}% <= -10%) - close losing positions before market close`
+      };
     }
   }
 
-  return "MANAGE_ALLOCATION";
+  return {
+    action: "MANAGE_ALLOCATION",
+    reason: "No circuit breakers triggered - proceed with allocation management"
+  };
 }
 
 export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTargets {
@@ -157,11 +184,11 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
   );
   const targetAccountExposure = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.40 },
-    { minute: NINE_AM, value: 0.45 },
-    { minute: TEN_AM, value: 0.55 },
-    { minute: ELEVEN_AM, value: 0.65 },
-    { minute: ELEVEN_THIRTY_AM, value: 0.75 },
-    { minute: TWELVE_THIRTY_PM, value: 1.00 },
+    { minute: NINE_AM, value: 0.50 },
+    { minute: TEN_AM, value: 0.65 },
+    { minute: ELEVEN_AM, value: 0.85 },
+    { minute: ELEVEN_THIRTY_AM, value: 1.00 },
+    { minute: TWELVE_THIRTY_PM, value: 0.80 },
   ]);
   const bidWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.70 },
@@ -227,9 +254,7 @@ export function getTimeOfDayExecutionTargetsForPstTime(
 }
 
 export function buildExecutionStrategy(metrics: PositionMetrics): ExecutionStrategy {
-  return {
-    action: evaluateTradingStrategy(metrics),
-  };
+  return evaluateTradingStrategy(metrics);
 }
 
 function roundToTwoDecimals(value: number): number {
