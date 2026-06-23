@@ -19,6 +19,7 @@ import {
   RunGroupReturn,
   RunHistoryEntry,
   RunPlanRow,
+  RunStrategyDecision,
 } from "./run-history";
 import {
   buildInitialBudget,
@@ -72,6 +73,7 @@ type RunCycleContext = {
     targetAccountExposure: number;
     targetDTE: number;
   };
+  strategyDecisions: RunStrategyDecision[];
 };
 
 function formatCurrency(value: number): string {
@@ -230,6 +232,24 @@ function computeGroupReturns(
   });
 }
 
+function computeStrategyDecisions(
+  completedEvaluations: PositionGroupEvaluation[],
+): RunStrategyDecision[] {
+  return completedEvaluations
+    .map((evaluation) => ({
+      currentReturnPct: evaluation.currentReturn,
+      strategyAction: evaluation.strategy.action,
+      underlyingSymbol: evaluation.underlyingSymbol,
+    }))
+    .sort((left, right) => {
+      if (left.underlyingSymbol !== right.underlyingSymbol) {
+        return left.underlyingSymbol.localeCompare(right.underlyingSymbol);
+      }
+
+      return left.strategyAction.localeCompare(right.strategyAction);
+    });
+}
+
 async function getDefaultAccountNumber(): Promise<string> {
   const accounts =
     await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
@@ -274,6 +294,7 @@ async function buildRunCycleContext(
     resolvedAccountNumber,
   );
   const groupReturns = computeGroupReturns(completedEvaluations);
+  const strategyDecisions = computeStrategyDecisions(completedEvaluations);
   const currentTime = new Date();
   const baseExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
   const dynamicTakeProfitTarget = getDynamicTakeProfitTarget(currentTime);
@@ -398,6 +419,7 @@ async function buildRunCycleContext(
       },
     },
     runExecutionTargets,
+    strategyDecisions,
   };
 }
 
@@ -470,6 +492,7 @@ export default async function runBotCycle(
     executionSummary,
     groups: context.preview.groups,
     plan: context.preview.plan,
+    strategyDecisions: context.strategyDecisions,
     snapshot: context.preview.snapshot,
   });
 

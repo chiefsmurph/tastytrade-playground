@@ -21,6 +21,12 @@ export interface RunGroupReturn {
   underlyingSymbol: string;
 }
 
+export interface RunStrategyDecision {
+  currentReturnPct: number;
+  strategyAction: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
+  underlyingSymbol: string;
+}
+
 export interface RunHistoryEntry {
   accountNumber: string;
   executionSummary: {
@@ -33,10 +39,17 @@ export interface RunHistoryEntry {
   id: string;
   groups: RunGroupReturn[];
   plan: {
+    diagnostics?: {
+      currentReturnPct: number;
+      skippedReason: string;
+      strategyAction: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
+      underlyingSymbol: string;
+    }[];
     rows: RunPlanRow[];
     totalContracts: number;
     totalEstimatedCost: number;
   };
+  strategyDecisions: RunStrategyDecision[];
   snapshot: {
     dynamicTakeProfitTarget: number;
     currentExposurePct: number;
@@ -59,6 +72,7 @@ interface AppendRunHistoryInput {
   executionSummary: RunHistoryEntry["executionSummary"];
   groups: RunHistoryEntry["groups"];
   plan: RunHistoryEntry["plan"];
+  strategyDecisions: RunHistoryEntry["strategyDecisions"];
   snapshot: RunHistoryEntry["snapshot"];
 }
 
