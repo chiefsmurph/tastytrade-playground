@@ -184,10 +184,84 @@ export function allocateContractsByWeight(
   return routeOrders;
 }
 
+const TICK_UP_CHASE_ENABLED = true;
+const TICK_UP_INTERVAL_MS = 30_000; // 30 seconds
+const MAX_TICK_UPS = 10; // Maximum number of ticks
+
+function calculateDynamicTickSize(midPrice: number, askPrice: number): number {
+  // If we don't have a valid ask, fall back to SEC minimum tick rules
+  if (askPrice <= midPrice || !Number.isFinite(askPrice)) {
+    return midPrice < 3.0 ? 0.05 : 0.10;
+  }
+
+  // Calculate the spread gap between mid and ask
+  const spreadGap = askPrice - midPrice;
+
+  // Divide the spread into equal increments up to MAX_TICK_UPS
+  // This allows aggressive chasing on wide spreads and conservative on tight spreads
+  const tickSize = spreadGap / MAX_TICK_UPS;
+
+  // But also respect SEC minimums: don't go below them
+  const minTickSize = midPrice < 3.0 ? 0.05 : 0.10;
+  
+  return Math.max(tickSize, minTickSize);
+}
+
+async function waitForOrderFill(
+  accountNumber: string,
+  orderId: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const orders = await tastytradeApi.orderService.getOrders(accountNumber);
+      const order = orders.find((o) => o.id === orderId);
+      
+      if (!order) {
+        // Order not found, might have been filled or cancelled
+        return true;
+      }
+      
+      if (order.status === "Filled" || order.status === "Partially Filled") {
+        return true;
+      }
+      
+      if (!["Pending", "Open", "Pending Cancel"].includes(order.status || "")) {
+        return false;
+      }
+    } catch (err) {
+      // If we can't check status, assume it's still pending
+    }
+    
+    await new Promise((res) => setTimeout(res, 1000));
+  }
+  
+  return false;
+}
+
+async function cancelOrderById(
+  accountNumber: string,
+  orderId: string,
+): Promise<boolean> {
+  try {
+    const numericOrderId = Number(orderId);
+    if (!Number.isFinite(numericOrderId)) {
+      return false;
+    }
+    await tastytradeApi.orderService.cancelOrder(accountNumber, numericOrderId);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 export async function placeRouteOrders(
   accountNumber: string,
   candidateSymbol: string,
   routeOrders: AllocationRouteResult[],
+  bidPrice: number = 0,
+  askPrice: number = 0,
 ): Promise<AllocationRouteResult[]> {
   const placedOrders: AllocationRouteResult[] = [];
 
@@ -200,30 +274,77 @@ export async function placeRouteOrders(
       continue;
     }
 
-    const order: OrderPayload = {
-      source: "tastytrade-playground",
-      "time-in-force": "Day",
-      "order-type": "Limit",
-      price: roundOrderPrice(routeOrder.limitPrice),
-      "price-effect": "Debit",
-      legs: [
-        {
-          action: "Buy to Open",
-          symbol: candidateSymbol,
-          quantity: routeOrder.quantity,
-          "instrument-type": normalizeInstrumentType("Equity Option"),
-        },
-      ],
-    };
+    // Determine mid and ask for spread-based tick calculation
+    const midPrice = (bidPrice + askPrice) / 2 || routeOrder.limitPrice;
+    const askCeiling = askPrice || routeOrder.limitPrice;
 
-    const orderResponse = await tastytradeApi.orderService.createOrder(
-      accountNumber,
-      order,
-    );
+    let currentPrice = routeOrder.limitPrice;
+    let orderId: string | undefined;
+    let lastOrderResponse: any;
+    let tickCount = 0;
+
+    while (tickCount <= MAX_TICK_UPS) {
+      const order: OrderPayload = {
+        source: "tastytrade-playground",
+        "time-in-force": "Day",
+        "order-type": "Limit",
+        price: roundOrderPrice(currentPrice),
+        "price-effect": "Debit",
+        legs: [
+          {
+            action: "Buy to Open",
+            symbol: candidateSymbol,
+            quantity: routeOrder.quantity,
+            "instrument-type": normalizeInstrumentType("Equity Option"),
+          },
+        ],
+      };
+
+      // If we have an existing order, cancel it first
+      if (orderId && TICK_UP_CHASE_ENABLED && tickCount > 0) {
+        await cancelOrderById(accountNumber, orderId);
+      }
+
+      // Place new order
+      const orderResponse = await tastytradeApi.orderService.createOrder(
+        accountNumber,
+        order,
+      );
+      
+      lastOrderResponse = orderResponse;
+      orderId = orderResponse?.order?.id;
+
+      if (!TICK_UP_CHASE_ENABLED || tickCount >= MAX_TICK_UPS) {
+        // Not using tick-up chase, or reached max ticks
+        break;
+      }
+
+      // Wait for 30 seconds to see if order fills
+      const isFilled = orderId ? await waitForOrderFill(
+        accountNumber,
+        orderId,
+        TICK_UP_INTERVAL_MS,
+      ) : false;
+
+      if (isFilled) {
+        // Order filled, no need to tick up
+        break;
+      }
+
+      // Order not filled, calculate dynamic tick based on spread
+      const tickSize = calculateDynamicTickSize(midPrice, askCeiling);
+      currentPrice = currentPrice + tickSize;
+      tickCount += 1;
+
+      // Don't exceed the ask ceiling
+      if (currentPrice > askCeiling) {
+        currentPrice = askCeiling;
+      }
+    }
 
     placedOrders.push({
       ...routeOrder,
-      orderResponse,
+      orderResponse: lastOrderResponse,
       placedOrder: true,
     });
   }
@@ -430,6 +551,8 @@ export async function manageAllocationForGroup(
     accountNumber,
     candidate.symbol,
     routeOrders,
+    bid,
+    ask,
   );
   const estimatedOrderValue = placedRouteOrders.reduce(
     (sum, routeOrder) => sum + routeOrder.estimatedOrderValue,
