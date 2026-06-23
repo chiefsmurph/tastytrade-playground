@@ -1,4 +1,5 @@
 import tastytradeApi from "./tastytrade-client";
+import { restartOnFatalQuoteStreamerError } from "./quote-streamer-recovery";
 
 type QuoteEvent = Record<string, any>;
 let quoteStreamerConnectPromise: Promise<void> | null = null;
@@ -131,6 +132,10 @@ async function ensureQuoteStreamerConnected(): Promise<void> {
 
   quoteStreamerConnectPromise ??= tastytradeApi.quoteStreamer
     .connect()
+    .catch((error) => {
+      restartOnFatalQuoteStreamerError("quoteStreamer.connect", error);
+      throw error;
+    })
     .finally(() => {
       quoteStreamerConnectPromise = null;
     });
@@ -150,6 +155,7 @@ export async function getBidAskForSymbol(
       }
     });
   } catch (err) {
+    restartOnFatalQuoteStreamerError(`getBidAskForSymbol(${symbol})`, err);
     return null;
   }
 }
@@ -165,7 +171,8 @@ export async function getUnderlyingPrice(
         resolve(extracted);
       }
     });
-  } catch {
+  } catch (err) {
+    restartOnFatalQuoteStreamerError(`getUnderlyingPrice(${symbol})`, err);
     return null;
   }
 }

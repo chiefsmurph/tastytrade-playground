@@ -32,8 +32,27 @@ export interface RunStrategyDecision {
   underlyingSymbol: string;
 }
 
+export interface RunCloseOrderFill {
+  fillId: string | null;
+  fillPrice: number | null;
+  filledAt: string | null;
+  quantity: number | null;
+}
+
+export interface RunCloseOrder {
+  orderId: string | null;
+  placedOrder: boolean;
+  price: number | null;
+  skippedReason: string | null;
+  status: string | null;
+  symbol: string;
+  underlyingSymbol: string;
+  fills: RunCloseOrderFill[];
+}
+
 export interface RunHistoryEntry {
   accountNumber: string;
+  closeOrders: RunCloseOrder[];
   executionSummary: {
     allocationEstimatedTotal: number;
     allocationPlacedCount: number;
@@ -75,6 +94,7 @@ export interface RunHistoryEntry {
 
 interface AppendRunHistoryInput {
   accountNumber: string;
+  closeOrders: RunHistoryEntry["closeOrders"];
   executionSummary: RunHistoryEntry["executionSummary"];
   groups: RunHistoryEntry["groups"];
   plan: RunHistoryEntry["plan"];

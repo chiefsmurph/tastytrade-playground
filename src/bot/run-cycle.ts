@@ -17,6 +17,7 @@ import {
 import { setLastBotRunState } from "./last-run-state";
 import {
   appendRunHistory,
+  RunCloseOrder,
   RunGroupReturn,
   RunHistoryEntry,
   RunPlanRow,
@@ -391,6 +392,39 @@ function computeStrategyDecisions(
     });
 }
 
+function parseOptionalNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapCloseOrdersForRunHistory(
+  closeOrders: Awaited<ReturnType<typeof executePositionEvaluations>>["closeOrders"],
+): RunCloseOrder[] {
+  return closeOrders.map((result) => {
+    const order = result.orderResponse?.order;
+    const legs = Array.isArray(order?.legs) ? order.legs : [];
+    const fills = legs.flatMap((leg) =>
+      (Array.isArray(leg.fills) ? leg.fills : []).map((fill) => ({
+        fillId: String(fill["fill-id"] ?? "").trim() || null,
+        fillPrice: parseOptionalNumber(fill["fill-price"]),
+        filledAt: String(fill["filled-at"] ?? "").trim() || null,
+        quantity: parseOptionalNumber(fill.quantity),
+      })),
+    );
+
+    return {
+      fills,
+      orderId: String(order?.id ?? "").trim() || null,
+      placedOrder: result.placedOrder,
+      price: parseOptionalNumber(order?.price),
+      skippedReason: result.skippedReason ?? null,
+      status: String(order?.status ?? "").trim() || null,
+      symbol: result.symbol,
+      underlyingSymbol: result.underlyingSymbol,
+    };
+  });
+}
+
 async function getDefaultAccountNumber(): Promise<string> {
   const accounts =
     await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
@@ -688,6 +722,7 @@ export default async function runBotCycle(
 
   const runHistoryEntry = await appendRunHistory({
     accountNumber: context.preview.accountNumber,
+    closeOrders: mapCloseOrdersForRunHistory(executionResults.closeOrders),
     executionSummary,
     groups: context.preview.groups,
     plan: context.preview.plan,

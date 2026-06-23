@@ -1,4 +1,8 @@
 import { getUnderlyingPrice } from "./market-data";
+import {
+  restartOnFatalQuoteStreamerError,
+  triggerQuoteStreamerRestart,
+} from "./quote-streamer-recovery";
 import tastytradeApi from "./tastytrade-client";
 import {
   TastytradeOptionChain,
@@ -237,11 +241,20 @@ export async function fetchOptionVolumes(
       console.warn(
         "No raw events received from quoteStreamer — check authentication and connectivity.",
       );
+      // If streamer is authenticated out or hard-disconnected, force a PM2 restart.
+      triggerQuoteStreamerRestart(
+        "quoteStreamer produced zero raw events",
+        {
+          symbol: optionChain["underlying-symbol"],
+          streamerSymbolCount: resolvedStreamerSymbols.length,
+        },
+      );
     }
 
     return volumes;
   } catch (err: any) {
     console.error("Error collecting option volumes:", err?.message || err);
+    restartOnFatalQuoteStreamerError("fetchOptionVolumes", err);
     throw err;
   }
 }
