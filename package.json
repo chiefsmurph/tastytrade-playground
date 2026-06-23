@@ -14,7 +14,8 @@
   "dependencies": {
     "@tastytrade/api": "^7.0.2",
     "axios": "^1.6.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

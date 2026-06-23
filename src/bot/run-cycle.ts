@@ -66,6 +66,13 @@ export interface RunCyclePreview {
 
 type RunCycleContext = {
   accountBalances: TastytradeAccountBalance;
+  baseExecutionTargets: {
+    askWeight: number;
+    bidWeight: number;
+    midWeight: number;
+    targetAccountExposure: number;
+    targetDTE: number;
+  };
   completedEvaluations: PositionGroupEvaluation[];
   evaluationsWithGroupTargets: PositionGroupEvaluation[];
   preview: RunCyclePreview;
@@ -208,9 +215,19 @@ function logStrategyDecisions(strategyDecisions: RunStrategyDecision[]): void {
 
 function logExecutionTargetsByGroup(
   evaluations: PositionGroupEvaluation[],
+  baseExecutionTargets: {
+    askWeight: number;
+    bidWeight: number;
+    midWeight: number;
+    targetAccountExposure: number;
+    targetDTE: number;
+  },
   currentTime: Date,
 ): void {
   console.log("\n=== EXECUTION TARGETS BY GROUP ===");
+  console.log(
+    `Time-of-Day Base (shared): exp=${formatPercent(baseExecutionTargets.targetAccountExposure)}, dte=${baseExecutionTargets.targetDTE}, bid=${baseExecutionTargets.bidWeight.toFixed(2)}/mid=${baseExecutionTargets.midWeight.toFixed(2)}/ask=${baseExecutionTargets.askWeight.toFixed(2)}`,
+  );
 
   const manageAllocations = evaluations.filter(
     (e) => e.strategy.action === "MANAGE_ALLOCATION",
@@ -238,9 +255,8 @@ function logExecutionTargetsByGroup(
       currentTime,
     );
 
-    const baseTimeOfDayTargets = getTimeOfDayExecutionTargets(currentTime);
     const blendedTargets = averageExecutionTargets([
-      baseTimeOfDayTargets,
+      baseExecutionTargets,
       groupTargets,
     ]);
 
@@ -250,9 +266,6 @@ function logExecutionTargetsByGroup(
     );
     console.log(
       `  Group Targets (position-based): exp=${formatPercent(groupTargets.targetAccountExposure)}, bid=${groupTargets.bidWeight.toFixed(2)}/mid=${groupTargets.midWeight.toFixed(2)}/ask=${groupTargets.askWeight.toFixed(2)}`,
-    );
-    console.log(
-      `  Time-of-Day Base: exp=${formatPercent(baseTimeOfDayTargets.targetAccountExposure)}, bid=${baseTimeOfDayTargets.bidWeight.toFixed(2)}/mid=${baseTimeOfDayTargets.midWeight.toFixed(2)}/ask=${baseTimeOfDayTargets.askWeight.toFixed(2)}`,
     );
     console.log(
       `  Blended (averaged): exp=${formatPercent(blendedTargets.targetAccountExposure)}, bid=${blendedTargets.bidWeight.toFixed(2)}/mid=${blendedTargets.midWeight.toFixed(2)}/ask=${blendedTargets.askWeight.toFixed(2)}`,
@@ -502,6 +515,7 @@ async function buildRunCycleContext(
 
   return {
     accountBalances,
+    baseExecutionTargets,
     completedEvaluations,
     evaluationsWithGroupTargets,
     preview: {
@@ -563,7 +577,11 @@ export async function runBotCycleLogOnly(
 
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
-  logExecutionTargetsByGroup(context.evaluationsWithGroupTargets, new Date());
+  logExecutionTargetsByGroup(
+    context.evaluationsWithGroupTargets,
+    context.baseExecutionTargets,
+    new Date(),
+  );
   logRunPlan(context.preview);
   logStrategyDecisions(context.strategyDecisions);
 
@@ -584,7 +602,11 @@ export default async function runBotCycle(
 
   logRunSnapshot(context.preview);
   logGroupReturns(context.preview.groups);
-  logExecutionTargetsByGroup(context.evaluationsWithGroupTargets, new Date());
+  logExecutionTargetsByGroup(
+    context.evaluationsWithGroupTargets,
+    context.baseExecutionTargets,
+    new Date(),
+  );
   logRunPlan(context.preview);
   logStrategyDecisions(context.strategyDecisions);
 
