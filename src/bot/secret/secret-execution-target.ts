@@ -54,6 +54,32 @@ function normalizeBuyWeight(buyWeight: number): number {
   return clamp(buyWeight / 400, 0, 1);
 }
 
+// Returns a raw buy-weight boost (0-400 scale) based on the max aggressiveness
+// level signalled by daytradeScore, returnPerc, and superRecScore.
+// Level 1 (aggressive): +100. Level 2 (very aggressive): +200.
+function computeAggressivenessBoost(position: SecretSourcePosition): number {
+  let level = 0;
+
+  const daytradeScore = Number(position.daytradeScore);
+  if (Number.isFinite(daytradeScore)) {
+    if (daytradeScore <= -200) level = Math.max(level, 2);
+    else if (daytradeScore <= -100) level = Math.max(level, 1);
+  }
+
+  const returnPerc = Number(position.returnPerc);
+  if (Number.isFinite(returnPerc)) {
+    if (returnPerc < -5) level = Math.max(level, 2);
+    else if (returnPerc < -2) level = Math.max(level, 1);
+  }
+
+  const superRecScore = Number(position.superRecScore);
+  if (Number.isFinite(superRecScore) && superRecScore > 80) {
+    level = Math.max(level, 1);
+  }
+
+  return level * 100;
+}
+
 function toSecretExecutionTargets(
   buyWeight: number,
   baseTargets: ExecutionTargets,
@@ -93,7 +119,7 @@ function getBuyWeightsFromPositions(
         Number.isFinite(buyWeight)
       );
     })
-    .map((position) => Number(position.buyWeight));
+    .map((position) => Number(position.buyWeight) + computeAggressivenessBoost(position));
 }
 
 function getBuyWeightForSymbol(
@@ -111,7 +137,10 @@ function getBuyWeightForSymbol(
   }
 
   const buyWeight = Number(match.buyWeight);
-  return Number.isFinite(buyWeight) ? buyWeight : null;
+  if (!Number.isFinite(buyWeight)) {
+    return null;
+  }
+  return buyWeight + computeAggressivenessBoost(match);
 }
 
 function updateCachedPositionsFromPayload(payload: SecretDataUpdatePayload): void {
@@ -207,6 +236,43 @@ export function getSecretBuyWeightForSymbol(symbol: string): number | null {
 
   startSecretSocketConnection();
   return getBuyWeightForSymbol(cachedSourcePositions, symbol);
+}
+
+export interface SecretPositionSignals {
+  rawBuyWeight: number | null;
+  daytradeScore: number | null;
+  returnPerc: number | null;
+  superRecScore: number | null;
+}
+
+export function getSecretPositionSignalsForSymbol(symbol: string): SecretPositionSignals | null {
+  if (!isSecretModuleConfigured()) {
+    return null;
+  }
+
+  startSecretSocketConnection();
+
+  const normalizedSymbol = normalizeTicker(symbol);
+  const match = cachedSourcePositions.find((position) => {
+    const ticker = typeof position.ticker === "string" ? position.ticker : "";
+    return normalizeTicker(ticker) === normalizedSymbol;
+  });
+
+  if (!match) {
+    return null;
+  }
+
+  const rawBuyWeight = Number(match.buyWeight);
+  const daytradeScore = Number(match.daytradeScore);
+  const returnPerc = Number(match.returnPerc);
+  const superRecScore = Number(match.superRecScore);
+
+  return {
+    rawBuyWeight: Number.isFinite(rawBuyWeight) ? rawBuyWeight : null,
+    daytradeScore: Number.isFinite(daytradeScore) ? daytradeScore : null,
+    returnPerc: Number.isFinite(returnPerc) ? returnPerc : null,
+    superRecScore: Number.isFinite(superRecScore) ? superRecScore : null,
+  };
 }
 
 export function getSecretExecutionTargetForSymbol(options: {

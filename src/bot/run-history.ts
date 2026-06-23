@@ -16,6 +16,9 @@ export interface RunGroupReturn {
   currentReturnPct: number;
   side: "call" | "put" | "none";
   buyWeight: number | null;
+  daytradeScore: number | null;
+  returnPerc: number | null;
+  superRecScore: number | null;
   totalCostBasis: number;
   totalUnrealizedReturnAsk: number;
   totalUnrealizedReturnBid: number;

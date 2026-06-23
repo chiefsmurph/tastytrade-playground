@@ -1,6 +1,7 @@
 export {
 	getCachedSecretSourcePositions,
 	getSecretBuyWeightForSymbol,
+	getSecretPositionSignalsForSymbol,
 	getSecretExecutionTargetForSymbol,
 	getSecretExecutionTargetForRun,
 	getSecretSocketStatus,
@@ -15,3 +16,4 @@ export type {
 	DebugSecretExecutionTargetPayload,
 } from "./debug-secret-execution-target";
 export type { SecretDataUpdatePayload, SecretSourcePosition } from "./types";
+export type { SecretPositionSignals } from "./secret-execution-target";

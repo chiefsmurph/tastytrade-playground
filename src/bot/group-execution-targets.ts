@@ -7,6 +7,8 @@ import {
 import {
   getSecretBuyWeightForSymbol,
   getSecretExecutionTargetForSymbol,
+  getSecretPositionSignalsForSymbol,
+  type SecretPositionSignals,
 } from "./secret";
 
 export interface GroupExecutionTargetInputs {
@@ -25,6 +27,7 @@ export interface GroupExecutionTargetComponents {
   positionGroupTargets: ExecutionTargets | null;
   secretBuyWeight: number | null;
   secretExecutionTargets: ExecutionTargets | null;
+  secretSignals: SecretPositionSignals | null;
 }
 
 export function buildGroupExecutionTargets(
@@ -48,6 +51,7 @@ export function buildGroupExecutionTargets(
   // Resolve secret ticker match early so debug output still shows buyWeight
   // even when the no-buy gate is active.
   const secretBuyWeight = getSecretBuyWeightForSymbol(symbol);
+  const secretSignals = getSecretPositionSignalsForSymbol(symbol);
   const secretExecutionTargets = getSecretExecutionTargetForSymbol({
     baseTargets: baseExecutionTargets,
     symbol,
@@ -75,6 +79,7 @@ export function buildGroupExecutionTargets(
       positionGroupTargets: null,
       secretBuyWeight,
       secretExecutionTargets,
+      secretSignals,
     };
   }
 
@@ -103,5 +108,6 @@ export function buildGroupExecutionTargets(
     positionGroupTargets: effectivePositionGroupTargets,
     secretBuyWeight,
     secretExecutionTargets,
+    secretSignals,
   };
 }

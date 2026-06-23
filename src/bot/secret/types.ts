@@ -1,6 +1,9 @@
 export interface SecretSourcePosition {
   ticker?: string;
   buyWeight?: number;
+  daytradeScore?: number;
+  returnPerc?: number;
+  superRecScore?: number;
   [key: string]: unknown;
 }
 

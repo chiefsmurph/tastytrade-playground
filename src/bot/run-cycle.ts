@@ -30,8 +30,9 @@ import {
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   getCachedSecretSourcePositions,
-  startSecretSocketConnection,
+  getSecretPositionSignalsForSymbol,
   getSecretSocketStatus,
+  startSecretSocketConnection,
 } from "./secret";
 import { buildGroupExecutionTargets } from "./group-execution-targets";
 
@@ -281,6 +282,7 @@ function logExecutionTargetsByGroup(
     });
     const groupTargets = groupTargetComponents.positionGroupTargets;
     const secretBuyWeight = groupTargetComponents.secretBuyWeight;
+    const secretSignals = groupTargetComponents.secretSignals;
     const secretGroupTargets = groupTargetComponents.secretExecutionTargets;
     const blendedTargets = groupTargetComponents.blendedTargets;
 
@@ -299,7 +301,7 @@ function logExecutionTargetsByGroup(
     }
     if (secretGroupTargets) {
       console.log(
-        `  Secret Targets (ticker match): buyWeight=${secretBuyWeight ?? "n/a"}, positionsAge=${secretPositionsAge}, exp=${formatPercent(secretGroupTargets.targetAccountExposure)}, bid=${secretGroupTargets.bidWeight.toFixed(2)}/mid=${secretGroupTargets.midWeight.toFixed(2)}/ask=${secretGroupTargets.askWeight.toFixed(2)}`,
+        `  Secret Targets (ticker match): buyWeight=${secretBuyWeight ?? "n/a"}, daytradeScore=${secretSignals?.daytradeScore ?? "n/a"}, returnPerc=${secretSignals?.returnPerc ?? "n/a"}, superRecScore=${secretSignals?.superRecScore ?? "n/a"}, positionsAge=${secretPositionsAge}, exp=${formatPercent(secretGroupTargets.targetAccountExposure)}, bid=${secretGroupTargets.bidWeight.toFixed(2)}/mid=${secretGroupTargets.midWeight.toFixed(2)}/ask=${secretGroupTargets.askWeight.toFixed(2)}`,
       );
     } else {
       console.log("  Secret Targets (ticker match): unavailable for this symbol");
@@ -321,6 +323,7 @@ function computeGroupReturns(
   completedEvaluations: PositionGroupEvaluation[],
 ): RunGroupReturn[] {
   return completedEvaluations.map((evaluation) => {
+    const secretSignals = getSecretPositionSignalsForSymbol(evaluation.underlyingSymbol);
     const firstSymbol = String(evaluation.positions[0]?.symbol ?? "").trim();
     const sideMatch = firstSymbol.match(/([CP])(\d+)$/i);
     const side: "call" | "put" | "none" = sideMatch
@@ -357,6 +360,9 @@ function computeGroupReturns(
       bidReturnPct,
       currentReturnPct: evaluation.currentReturn,
       buyWeight: evaluation.secretBuyWeight ?? null,
+      daytradeScore: secretSignals?.daytradeScore ?? null,
+      returnPerc: secretSignals?.returnPerc ?? null,
+      superRecScore: secretSignals?.superRecScore ?? null,
       side,
       totalCostBasis,
       totalUnrealizedReturnAsk,
