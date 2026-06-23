@@ -9,7 +9,9 @@ import {
   resetOptionMarketSnapshotCacheStats,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
-import { getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime } from "./bot/evaluate-trading-strategy";
+import {
+  getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime,
+} from "./bot/evaluate-trading-strategy";
 import { getCurrentAllocationBudget } from "./bot/actions/manage-allocation";
 import { getOptionCandidates } from "./bot/option-contracts";
 import runBotCycle, {
@@ -29,6 +31,11 @@ import {
   getCurrentEquitiesSession,
   isEquityOptionsMarketOpen,
 } from "./core/market-sessions";
+import {
+  buildDebugSecretExecutionTargetPayload,
+  getSecretSocketStatus,
+  logDebugSecretExecutionTargetPayload,
+} from "./bot/secret";
 
 type CommandHandler = (args: string[]) => Promise<unknown>;
 
@@ -131,6 +138,41 @@ const commandHandlers: Record<string, CommandHandler> = {
   "bot:getCurrentAllocationBudget": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
     return getCurrentAllocationBudget(resolvedAccountNumber);
+  },
+  "bot:getSecretSocketStatus": async () => {
+    const status = getSecretSocketStatus();
+    console.log(
+      JSON.stringify(
+        {
+          scope: "secret-socket-status",
+          status,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
+    return status;
+  },
+  "bot:debugSecretExecutionTargetForSymbol": async ([
+    symbol,
+    askReturnPercArg,
+    timeSinceLastActionMinutesArg,
+    currentExposurePctArg,
+  ]) => {
+    assertArg(symbol, "symbol");
+    const debugPayload = buildDebugSecretExecutionTargetPayload({
+      askReturnPerc: parseOptionalNumberArg(askReturnPercArg, 0),
+      currentExposurePct: parseOptionalNumberArg(currentExposurePctArg, 0),
+      symbol,
+      timeSinceLastActionMinutes: parseOptionalNumberArg(
+        timeSinceLastActionMinutesArg,
+        20,
+      ),
+    });
+
+    logDebugSecretExecutionTargetPayload(debugPayload);
+    return debugPayload;
   },
   "bot:seedSymbol": async ([symbol, side, accountNumber]) => {
     assertArg(symbol, "symbol");
@@ -313,6 +355,22 @@ function assertArg(value: string | undefined, name: string): asserts value is st
   if (!value) {
     throw new Error(`Missing required argument: ${name}`);
   }
+}
+
+function roundToTwoDecimals(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function parseOptionalNumberArg(
+  value: string | undefined,
+  fallback: number,
+): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function cleanupStaleSocket() {

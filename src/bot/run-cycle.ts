@@ -13,7 +13,6 @@ import {
   averageExecutionTargets,
   getDynamicTakeProfitTarget,
   getTimeOfDayExecutionTargets,
-  getPositionGroupExecutionTargets,
 } from "./evaluate-trading-strategy";
 import { setLastBotRunState } from "./last-run-state";
 import {
@@ -29,6 +28,11 @@ import {
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
 import { PositionGroupEvaluation } from "./evaluate-position";
+import {
+  getCachedSecretSourcePositions,
+  startSecretSocketConnection,
+} from "./secret";
+import { buildGroupExecutionTargets } from "./group-execution-targets";
 
 export interface RunCyclePreview {
   accountNumber: string;
@@ -228,6 +232,7 @@ function logExecutionTargetsByGroup(
   console.log(
     `Time-of-Day Base (shared): exp=${formatPercent(baseExecutionTargets.targetAccountExposure)}, dte=${baseExecutionTargets.targetDTE}, bid=${baseExecutionTargets.bidWeight.toFixed(2)}/mid=${baseExecutionTargets.midWeight.toFixed(2)}/ask=${baseExecutionTargets.askWeight.toFixed(2)}`,
   );
+  console.log("Secret Socket: per-group by ticker (configured positions source key)");
 
   const manageAllocations = evaluations.filter(
     (e) => e.strategy.action === "MANAGE_ALLOCATION",
@@ -249,24 +254,39 @@ function logExecutionTargetsByGroup(
       currentTime.getTime() - evaluation.metrics.lastActionTime.getTime();
     const timeSinceLastActionMinutes = timeSinceLastActionMs / (1000 * 60);
 
-    const groupTargets = getPositionGroupExecutionTargets(
+    const groupTargetComponents = buildGroupExecutionTargets({
       askReturnPerc,
-      timeSinceLastActionMs,
-      currentTime,
-    );
-
-    const blendedTargets = averageExecutionTargets([
       baseExecutionTargets,
-      groupTargets,
-    ]);
+      currentExposurePct: 0,
+      currentTime,
+      symbol: evaluation.underlyingSymbol,
+      timeSinceLastActionMs,
+    });
+    const groupTargets = groupTargetComponents.positionGroupTargets;
+    const secretBuyWeight = groupTargetComponents.secretBuyWeight;
+    const secretGroupTargets = groupTargetComponents.secretExecutionTargets;
+    const blendedTargets = groupTargetComponents.blendedTargets;
 
     console.log(`\n${evaluation.underlyingSymbol}`);
     console.log(
       `  Position Health: ask_return=${formatPercent(askReturnPerc)}, stale=${timeSinceLastActionMinutes.toFixed(1)}min`,
     );
-    console.log(
-      `  Group Targets (position-based): exp=${formatPercent(groupTargets.targetAccountExposure)}, bid=${groupTargets.bidWeight.toFixed(2)}/mid=${groupTargets.midWeight.toFixed(2)}/ask=${groupTargets.askWeight.toFixed(2)}`,
-    );
+    if (groupTargetComponents.noBuyGateActive) {
+      console.log("  Group Targets (position-based): no-buy gate active");
+    } else if (groupTargets) {
+      console.log(
+        `  Group Targets (position-based): exp=${formatPercent(groupTargets.targetAccountExposure)}, bid=${groupTargets.bidWeight.toFixed(2)}/mid=${groupTargets.midWeight.toFixed(2)}/ask=${groupTargets.askWeight.toFixed(2)}`,
+      );
+    } else {
+      console.log("  Group Targets (position-based): unavailable because no position is open");
+    }
+    if (secretGroupTargets) {
+      console.log(
+        `  Secret Targets (ticker match): buyWeight=${secretBuyWeight ?? "n/a"}, exp=${formatPercent(secretGroupTargets.targetAccountExposure)}, bid=${secretGroupTargets.bidWeight.toFixed(2)}/mid=${secretGroupTargets.midWeight.toFixed(2)}/ask=${secretGroupTargets.askWeight.toFixed(2)}`,
+      );
+    } else {
+      console.log("  Secret Targets (ticker match): unavailable for this symbol");
+    }
     console.log(
       `  Blended (averaged): exp=${formatPercent(blendedTargets.targetAccountExposure)}, bid=${blendedTargets.bidWeight.toFixed(2)}/mid=${blendedTargets.midWeight.toFixed(2)}/ask=${blendedTargets.askWeight.toFixed(2)}`,
     );
@@ -319,6 +339,7 @@ function computeGroupReturns(
       askReturnPct,
       bidReturnPct,
       currentReturnPct: evaluation.currentReturn,
+      buyWeight: evaluation.secretBuyWeight ?? null,
       side,
       totalCostBasis,
       totalUnrealizedReturnAsk,
@@ -393,7 +414,14 @@ async function buildRunCycleContext(
   const groupReturns = computeGroupReturns(completedEvaluations);
   const strategyDecisions = computeStrategyDecisions(completedEvaluations);
   const currentTime = new Date();
-  const baseExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
+
+  startSecretSocketConnection();
+  const timeOfDayExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
+  const cachedSecretPositions = getCachedSecretSourcePositions();
+  console.log(
+    `[secret] cached source positions: ${cachedSecretPositions.length}`,
+  );
+  const baseExecutionTargets = timeOfDayExecutionTargets;
   const dynamicTakeProfitTarget = getDynamicTakeProfitTarget(currentTime);
 
   const startingBudget = buildInitialBudget(
@@ -422,17 +450,15 @@ async function buildRunCycleContext(
       currentTime.getTime() - evaluation.metrics.lastActionTime.getTime();
 
     // Get position group-based targets
-    const groupTargets = getPositionGroupExecutionTargets(
+    const groupTargetComponents = buildGroupExecutionTargets({
       askReturnPerc,
-      timeSinceLastActionMs,
+      baseExecutionTargets,
+      currentExposurePct,
       currentTime,
-    );
-
-    // Average with time-of-day targets
-    const blendedTargets = averageExecutionTargets([baseExecutionTargets, groupTargets]);
-
-    // Apply position size caps
-    const finalTargets = applyPositionSizeWeightCaps(blendedTargets, currentExposurePct);
+      symbol: evaluation.underlyingSymbol,
+      timeSinceLastActionMs,
+    });
+    const finalTargets = groupTargetComponents.finalPostCapsTargets;
 
     return {
       ...evaluation,

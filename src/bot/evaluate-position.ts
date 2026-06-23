@@ -21,6 +21,7 @@ export interface PositionGroupEvaluation {
   positions: CurrentPosition[];
   positionSnapshots: PositionQuoteSnapshot[];
   metrics: PositionMetrics;
+  secretBuyWeight?: number | null;
   strategy: ExecutionStrategy;
   executionTargets?: ExecutionTargets;
   currentReturn: number;
