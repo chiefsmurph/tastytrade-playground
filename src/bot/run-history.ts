@@ -120,35 +120,30 @@ interface AppendRunHistoryInput {
   snapshot: RunHistoryEntry["snapshot"];
 }
 
-function getRunHistoryPath(): string {
-  return (
-    process.env.TASTYTRADE_BOT_RUN_HISTORY_PATH ||
-    path.join(process.cwd(), "data", "runs.ndjson")
-  );
+function sanitizeAccountNumberForPath(accountNumber: string): string {
+  const normalized = String(accountNumber ?? "").trim();
+  if (!normalized) {
+    return "unknown-account";
+  }
+
+  return normalized.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-export async function appendRunHistory(
-  input: AppendRunHistoryInput,
-): Promise<RunHistoryEntry> {
-  const entry: RunHistoryEntry = {
-    ...input,
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    timestamp: new Date().toISOString(),
-  };
+function getRunHistoryDirectory(): string {
+  const configuredDirectory = process.env.TASTYTRADE_BOT_RUN_HISTORY_DIR?.trim();
+  if (configuredDirectory) {
+    return configuredDirectory;
+  }
 
-  const historyPath = getRunHistoryPath();
-  await fs.mkdir(path.dirname(historyPath), { recursive: true });
-  await fs.appendFile(historyPath, `${JSON.stringify(entry)}\n`, "utf8");
-
-  return entry;
+  return path.join(process.cwd(), "data", "runs");
 }
 
-export async function getRecentRunHistory(limit = 20): Promise<RunHistoryEntry[]> {
-  const normalizedLimit = Number.isFinite(limit)
-    ? Math.max(1, Math.floor(limit))
-    : 20;
+function getRunHistoryPathForAccount(accountNumber: string): string {
+  const safeAccountNumber = sanitizeAccountNumberForPath(accountNumber);
+  return path.join(getRunHistoryDirectory(), `${safeAccountNumber}.ndjson`);
+}
 
-  const historyPath = getRunHistoryPath();
+async function readRunHistoryFile(historyPath: string): Promise<RunHistoryEntry[]> {
   let raw = "";
 
   try {
@@ -167,7 +162,7 @@ export async function getRecentRunHistory(limit = 20): Promise<RunHistoryEntry[]
     .filter((line) => line.length > 0);
 
   const parsed: RunHistoryEntry[] = [];
-  for (let index = lines.length - 1; index >= 0 && parsed.length < normalizedLimit; index -= 1) {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
     try {
       parsed.push(JSON.parse(lines[index]) as RunHistoryEntry);
     } catch {
@@ -176,4 +171,63 @@ export async function getRecentRunHistory(limit = 20): Promise<RunHistoryEntry[]
   }
 
   return parsed;
+}
+
+export async function appendRunHistory(
+  input: AppendRunHistoryInput,
+): Promise<RunHistoryEntry> {
+  const entry: RunHistoryEntry = {
+    ...input,
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    timestamp: new Date().toISOString(),
+  };
+
+  const historyPath = getRunHistoryPathForAccount(input.accountNumber);
+  await fs.mkdir(path.dirname(historyPath), { recursive: true });
+  await fs.appendFile(historyPath, `${JSON.stringify(entry)}\n`, "utf8");
+
+  return entry;
+}
+
+export async function getRecentRunHistory(
+  limit = 20,
+  accountNumber?: string,
+): Promise<RunHistoryEntry[]> {
+  const normalizedLimit = Number.isFinite(limit)
+    ? Math.max(1, Math.floor(limit))
+    : 20;
+
+  if (accountNumber?.trim()) {
+    const accountEntries = await readRunHistoryFile(
+      getRunHistoryPathForAccount(accountNumber),
+    );
+    return accountEntries.slice(0, normalizedLimit);
+  }
+
+  const directoryPath = getRunHistoryDirectory();
+  let fileNames: string[] = [];
+  try {
+    fileNames = await fs.readdir(directoryPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const ndjsonFiles = fileNames.filter((fileName) => fileName.endsWith(".ndjson"));
+  const entriesByFile = await Promise.all(
+    ndjsonFiles.map((fileName) =>
+      readRunHistoryFile(path.join(directoryPath, fileName)),
+    ),
+  );
+
+  const merged = entriesByFile
+    .flat()
+    .sort((left, right) =>
+      String(right.timestamp).localeCompare(String(left.timestamp)),
+    );
+
+  return merged.slice(0, normalizedLimit);
 }

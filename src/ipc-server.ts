@@ -201,9 +201,11 @@ const commandHandlers: Record<string, CommandHandler> = {
   "bot:getRunCyclePreview": async ([accountNumber]) =>
     getRunCyclePreview(accountNumber),
   "bot:getLastRunCycle": async ([accountNumber]) => getLastBotRunState(accountNumber),
-  "bot:getRecentRunHistory": async ([limit]) => {
+  "bot:getRecentRunHistory": async ([limit, accountNumber]) => {
     const parsedLimit = limit ? Number(limit) : 20;
-    return getRecentRunHistory(parsedLimit);
+    const parsedAccountNumber =
+      typeof accountNumber === "string" ? accountNumber.trim() : undefined;
+    return getRecentRunHistory(parsedLimit, parsedAccountNumber);
   },
   "bot:getMarketOpenSchedulerStatus": async () =>
     getMarketOpenSchedulerStatus(),
