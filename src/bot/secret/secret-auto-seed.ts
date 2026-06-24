@@ -99,8 +99,8 @@ function normalizeSideForSeed(
   return null;
 }
 
-function hasQualityToBuy(position: SecretSourcePosition): boolean {
-  const raw = position.qualityToBuy;
+function hasBuyEligible(position: SecretSourcePosition): boolean {
+  const raw = position.buyEligible;
 
   if (typeof raw === "boolean") {
     return raw;
@@ -181,7 +181,7 @@ export async function maybeAutoSeedFromSecretPositions(
       continue;
     }
 
-    if (!hasQualityToBuy(position)) {
+    if (!hasBuyEligible(position)) {
       continue;
     }
 

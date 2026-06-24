@@ -2,7 +2,7 @@ export interface SecretSourcePosition {
   ticker?: string;
   buyWeight?: number;
   daytradeScore?: number;
-  qualityToBuy?: boolean | string | number;
+  buyEligible?: boolean | string | number;
   returnPerc?: number;
   superRecScore?: number;
   [key: string]: unknown;
