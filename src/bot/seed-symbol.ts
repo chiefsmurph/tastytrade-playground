@@ -1,4 +1,5 @@
 import tastytradeApi from "~/core/tastytrade-client";
+import { getDefaultAccountNumber } from "~/core/default-account";
 import { CurrentPosition } from "~/core/types";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
@@ -77,17 +78,6 @@ function extractDryRunSkipReason(error: unknown): string {
     maybeResponse.response?.data?.message;
 
   return brokerMessage || error.message || "seed order dry run failed";
-}
-
-async function getDefaultAccountNumber(): Promise<string> {
-  const accounts =
-    await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
-  const accountNumber = accounts[0]?.account?.["account-number"];
-  if (!accountNumber) {
-    throw new Error("No account number available");
-  }
-
-  return accountNumber;
 }
 
 async function hasOpenUnderlyingPosition(

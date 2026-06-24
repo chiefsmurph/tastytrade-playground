@@ -1,18 +1,8 @@
 import tastytradeApi from "./tastytrade-client";
+import { getDefaultAccountNumber } from "./default-account";
 import { getTopOptionCandidateForSymbol } from "~/bot/get-option-candidates-for-symbol";
 import { getEffectiveBuyingPowerSummary } from "~/bot/effective-buying-power";
 import { getRunCyclePreview } from "~/bot/run-cycle";
-
-async function getDefaultAccountNumber(): Promise<string> {
-  const accounts =
-    await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
-  const accountNumber = accounts[0]?.account?.["account-number"];
-  if (!accountNumber) {
-    throw new Error("No account number available");
-  }
-
-  return accountNumber;
-}
 
 export async function getPositionsAndBalances(accountNumber?: string) {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());

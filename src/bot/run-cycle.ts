@@ -1,9 +1,12 @@
 import tastytradeApi from "~/core/tastytrade-client";
+import { getDefaultAccountNumber } from "~/core/default-account";
 import {
   getConservativeSpendableFunds,
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
+  getSpendableFundsForAccountType,
 } from "~/core/account-balance";
+import { getAccountMarginOrCash } from "~/core/default-account";
 import { TastytradeAccountBalance } from "~/core/types";
 import executePositionEvaluations, {
   cancelAllLiveOrders,
@@ -512,18 +515,6 @@ function mapCloseOrdersForRunHistory(
   });
 }
 
-async function getDefaultAccountNumber(): Promise<string> {
-  const accounts =
-    await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
-  const accountNumber = accounts[0]?.account?.["account-number"];
-
-  if (!accountNumber) {
-    throw new Error("No account number available");
-  }
-
-  return accountNumber;
-}
-
 async function buildRunCycleContext(
   accountNumber?: string,
 ): Promise<RunCycleContext> {
@@ -534,6 +525,9 @@ async function buildRunCycleContext(
     await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
       resolvedAccountNumber,
     );
+  const accountMarginOrCash = await getAccountMarginOrCash(
+    resolvedAccountNumber,
+  );
 
   console.log(
     JSON.stringify(
@@ -547,7 +541,10 @@ async function buildRunCycleContext(
     ),
   );
 
-  const buyingPower = getConservativeSpendableFunds(accountBalances);
+  const buyingPower = getSpendableFundsForAccountType(
+    accountBalances,
+    accountMarginOrCash,
+  );
   const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
 
   const completedEvaluations = await getPositionEvaluations(

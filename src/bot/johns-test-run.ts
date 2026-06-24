@@ -1,4 +1,5 @@
 import tastytradeApi from "~/core/tastytrade-client";
+import { getDefaultAccountNumber } from "~/core/default-account";
 import { CurrentPosition } from "~/core/types";
 import { chooseOptionCandidates } from "./option-contracts";
 
@@ -10,11 +11,12 @@ export default async function johnsTestRun() {
     const extractedAccountNumbers = accounts.map(
       (item) => item.account["account-number"],
     );
+    const defaultAccountNumber = await getDefaultAccountNumber();
     console.log({ accounts, extractedAccountNumbers });
 
     const currentPositions: CurrentPosition[] =
       await tastytradeApi.balancesAndPositionsService.getPositionsList(
-        extractedAccountNumbers[0],
+        defaultAccountNumber,
       );
     console.log({ currentPositions });
 

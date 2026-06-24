@@ -5,6 +5,10 @@ import {
 } from "~/core/account-balance";
 import tastytradeApi from "~/core/tastytrade-client";
 import { TastytradeAccountBalance, TastytradeOrder } from "~/core/types";
+import {
+  getSpendableFundsForAccountType,
+} from "~/core/account-balance";
+import { getAccountMarginOrCash } from "~/core/default-account";
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   ExecutionTargets,
@@ -20,7 +24,7 @@ import {
   getUpdatedBudgetAfterAllocation,
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
-import { getDefaultAccountNumber } from "../ipc-server";
+import { getDefaultAccountNumber } from "~/core/default-account";
 import {
   getDoNotTouchGroupKeys,
   isEvaluationDoNotTouch,
@@ -115,6 +119,11 @@ export async function executePositionEvaluations(
 ): Promise<PositionEvaluationExecutionResult> {
   const cancelledOrders = await cancelAllLiveOrders(accountNumber);
   const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
+  const accountMarginOrCash = await getAccountMarginOrCash(accountNumber);
+  const spendableFunds = getSpendableFundsForAccountType(
+    accountBalance,
+    accountMarginOrCash,
+  );
 
   const sharedExecutionTargets =
     runExecutionTargets ??
@@ -178,7 +187,7 @@ export async function executePositionEvaluations(
       actionableEvaluations.filter(
         (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
       ),
-      getConservativeSpendableFunds(accountBalance),
+      spendableFunds,
     ),
   );
   const actionableCloseEvaluations = actionableEvaluations.filter(
@@ -198,7 +207,7 @@ export async function executePositionEvaluations(
   ).flat();
 
   let budget = buildInitialBudget(
-    getConservativeSpendableFunds(accountBalance),
+    spendableFunds,
     getEffectiveTotalCapital(accountBalance),
     actionableEvaluations,
   );

@@ -2,7 +2,9 @@ import {
   getConservativeSpendableFunds,
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
+  getSpendableFundsForAccountType,
 } from "~/core/account-balance";
+import { getAccountMarginOrCash } from "~/core/default-account";
 import tastytradeApi from "~/core/tastytrade-client";
 import { getPositionEvaluations } from "../get-position-evaluations";
 import { PositionGroupEvaluation } from "../evaluate-position";
@@ -631,9 +633,10 @@ export async function getCurrentAllocationBudget(
     ),
     getPositionEvaluations(accountNumber),
   ]);
+  const accountMarginOrCash = await getAccountMarginOrCash(accountNumber);
 
   return buildInitialBudget(
-    getConservativeSpendableFunds(accountBalance),
+    getSpendableFundsForAccountType(accountBalance, accountMarginOrCash),
     getEffectiveTotalCapital(accountBalance),
     evaluations,
   );

@@ -44,6 +44,40 @@ export function getConservativeSpendableFunds(
   return Math.min(...candidates);
 }
 
+export function getMarginSpendableFunds(
+  accountBalance: TastytradeAccountBalance,
+): number {
+  const derivativeBuyingPower = getAccountBalanceNumber(
+    accountBalance,
+    "derivative-buying-power",
+  );
+
+  if (derivativeBuyingPower > 0) {
+    return derivativeBuyingPower;
+  }
+
+  const availableTradingFunds = getAccountBalanceNumber(
+    accountBalance,
+    "available-trading-funds",
+  );
+  if (availableTradingFunds > 0) {
+    return availableTradingFunds;
+  }
+
+  return getConservativeSpendableFunds(accountBalance);
+}
+
+export function getSpendableFundsForAccountType(
+  accountBalance: TastytradeAccountBalance,
+  accountMarginOrCash: "margin" | "cash" | "unknown",
+): number {
+  if (accountMarginOrCash === "margin") {
+    return getMarginSpendableFunds(accountBalance);
+  }
+
+  return getConservativeSpendableFunds(accountBalance);
+}
+
 export function getEffectiveTotalCapital(accountBalance: TastytradeAccountBalance): number {
   const derivativeBuyingPower = getAccountBalanceNumber(
     accountBalance,

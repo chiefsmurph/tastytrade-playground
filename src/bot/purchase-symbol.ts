@@ -1,4 +1,5 @@
 import tastytradeApi from "~/core/tastytrade-client";
+import { getDefaultAccountNumber } from "~/core/default-account";
 import {
   evaluateOptionHealthForTargetDTE,
   getOptionHealthForSymbol,
@@ -39,18 +40,6 @@ export interface PurchaseSymbolResult {
   totalEstimatedOrderValue: number;
   totalQuantity: number;
   usedDteFallback?: boolean;
-}
-
-async function getDefaultAccountNumber(): Promise<string> {
-  const accounts =
-    await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
-  const accountNumber = accounts[0]?.account?.["account-number"];
-
-  if (!accountNumber) {
-    throw new Error("No account number available");
-  }
-
-  return accountNumber;
 }
 
 export async function purchaseSymbol(

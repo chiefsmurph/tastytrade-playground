@@ -33,6 +33,7 @@ import {
   getCurrentEquitiesSession,
   isEquityOptionsMarketOpen,
 } from "./core/market-sessions";
+import { getDefaultAccountNumber } from "./core/default-account";
 import {
   buildDebugSecretExecutionTargetPayload,
   getSecretSocketStatus,
@@ -57,17 +58,6 @@ type IpcResponse = {
 const socketPath =
   process.env.TASTYTRADE_BOT_SOCKET ||
   path.join(process.cwd(), ".tastytrade-playground.sock");
-
-export async function getDefaultAccountNumber(): Promise<string> {
-  const accounts =
-    await tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
-  const accountNumber = accounts[0]?.account?.["account-number"];
-  if (!accountNumber) {
-    throw new Error("No account number available");
-  }
-
-  return accountNumber;
-}
 
 const commandHandlers: Record<string, CommandHandler> = {
   "core:listCommands": async () => {
