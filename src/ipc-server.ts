@@ -21,6 +21,7 @@ import runBotCycle, {
 } from "./bot/run-cycle";
 import seedSymbol from "./bot/seed-symbol";
 import purchaseSymbol from "./bot/purchase-symbol";
+import { getEffectiveBuyingPowerSummary } from "./bot/effective-buying-power";
 import {
   getMarketOpenSchedulerStatus,
   startMarketOpenScheduler,
@@ -86,6 +87,10 @@ const commandHandlers: Record<string, CommandHandler> = {
   },
   "core:getPositionsAndBalances": async ([accountNumber]) => {
     return getPositionsAndBalances(accountNumber);
+  },
+  "core:getBalanceSummary": async ([accountNumber]) => {
+    const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+    return getEffectiveBuyingPowerSummary(resolvedAccountNumber);
   },
   "core:cancelAllLiveOrders": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());

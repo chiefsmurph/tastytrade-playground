@@ -1,5 +1,6 @@
 import tastytradeApi from "./tastytrade-client";
 import { getTopOptionCandidateForSymbol } from "~/bot/get-option-candidates-for-symbol";
+import { getEffectiveBuyingPowerSummary } from "~/bot/effective-buying-power";
 import { getRunCyclePreview } from "~/bot/run-cycle";
 
 async function getDefaultAccountNumber(): Promise<string> {
@@ -15,7 +16,7 @@ async function getDefaultAccountNumber(): Promise<string> {
 
 export async function getPositionsAndBalances(accountNumber?: string) {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
-  const [balances, positions, preview] = await Promise.all([
+  const [balances, positions, preview, balanceSummary] = await Promise.all([
     tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
       resolvedAccountNumber,
     ),
@@ -23,6 +24,7 @@ export async function getPositionsAndBalances(accountNumber?: string) {
       resolvedAccountNumber,
     ),
     getRunCyclePreview(resolvedAccountNumber),
+    getEffectiveBuyingPowerSummary(resolvedAccountNumber),
   ]);
 
   const symbolsFromGroups = preview.groups
@@ -79,6 +81,7 @@ export async function getPositionsAndBalances(accountNumber?: string) {
       strategySummary: preview.strategySummary,
     },
     balances,
+    balanceSummary,
     topOptionCandidatesBySymbol,
     positions,
   };

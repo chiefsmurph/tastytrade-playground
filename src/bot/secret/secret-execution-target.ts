@@ -1,5 +1,7 @@
 import { io } from "socket.io-client";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
+import seedSymbol from "../seed-symbol";
+import { SECRET_AUTO_SEED_ORDER_SOURCE } from "../order-sources";
 import { SecretDataUpdatePayload, SecretSourcePosition } from "./types";
 
 const SECRET_SOCKET_EVENT = "server:data-update";
@@ -9,6 +11,107 @@ let cachedSourcePositions: SecretSourcePosition[] = [];
 let hasConnectedSecretSocket = false;
 let secretSocketIsConnected = false;
 let lastSecretPositionsUpdateAt: Date | null = null;
+const lastAutoSeedAtBySymbol = new Map<string, number>();
+
+function shouldAutoSeedOnSecretUpdate(): boolean {
+  const raw = process.env.SECRET_AUTO_SEED_ON_UPDATE?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+function getAutoSeedCooldownMs(): number {
+  const raw = process.env.SECRET_AUTO_SEED_COOLDOWN_MS?.trim();
+  if (!raw) {
+    return 10 * 60 * 1000;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 10 * 60 * 1000;
+  }
+
+  return parsed;
+}
+
+function normalizeSideForSeed(
+  position: SecretSourcePosition,
+): "call" | "put" | null {
+  const raw = String(position.side ?? "").trim().toLowerCase();
+  if (raw === "call" || raw === "c") {
+    return "call";
+  }
+  if (raw === "put" || raw === "p") {
+    return "put";
+  }
+
+  return null;
+}
+
+function hasQualityToBuy(position: SecretSourcePosition): boolean {
+  const raw = position.qualityToBuy;
+
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+
+  if (typeof raw === "number") {
+    return raw === 1;
+  }
+
+  const normalized = String(raw ?? "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+async function maybeAutoSeedFromSecretPositions(
+  sourcePositions: SecretSourcePosition[],
+): Promise<void> {
+  if (!shouldAutoSeedOnSecretUpdate()) {
+    return;
+  }
+
+  const cooldownMs = getAutoSeedCooldownMs();
+  const now = Date.now();
+
+  for (const position of sourcePositions) {
+    const symbol = String(position.ticker ?? "").trim().toUpperCase();
+    if (!symbol) {
+      continue;
+    }
+
+    if (!hasQualityToBuy(position)) {
+      continue;
+    }
+
+    const side = normalizeSideForSeed(position) ?? "call";
+    const lastSeedAt = lastAutoSeedAtBySymbol.get(symbol) ?? 0;
+    if (now - lastSeedAt < cooldownMs) {
+      continue;
+    }
+
+    try {
+      const result = await seedSymbol(symbol, side, undefined, {
+        orderSource: SECRET_AUTO_SEED_ORDER_SOURCE,
+        priceMode: "mid",
+      });
+      lastAutoSeedAtBySymbol.set(symbol, now);
+      console.log(
+        JSON.stringify(
+          {
+            scope: "secret-auto-seed",
+            symbol,
+            side,
+            result,
+            timestamp: new Date(now).toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[secret-auto-seed] failed for ${symbol}: ${message}`);
+    }
+  }
+}
 
 function getSecretPositionsSourceKey(): string | null {
   const configured = process.env.SECRET_DATA_UPDATE_POSITIONS_KEY?.trim();
@@ -156,6 +259,8 @@ function updateCachedPositionsFromPayload(payload: SecretDataUpdatePayload): voi
 
   cachedSourcePositions = sourcePositions as SecretSourcePosition[];
   lastSecretPositionsUpdateAt = new Date();
+
+  void maybeAutoSeedFromSecretPositions(cachedSourcePositions);
 }
 
 export function startSecretSocketConnection(): void {

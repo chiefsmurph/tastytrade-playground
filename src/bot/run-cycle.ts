@@ -21,6 +21,7 @@ import {
   RunCloseOrder,
   RunGroupReturn,
   RunHistoryEntry,
+  RunPlanSelectedGroup,
   RunPlanRow,
   RunStrategyDecision,
 } from "./run-history";
@@ -52,6 +53,8 @@ export interface RunCyclePreview {
       underlyingSymbol: string;
     }[];
     rows: RunPlanRow[];
+    selectedGroups: RunPlanSelectedGroup[];
+    unselectedGroups: RunPlanSelectedGroup[];
     totalContracts: number;
     totalEstimatedCost: number;
   };
@@ -445,6 +448,25 @@ function parseOptionalNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function toRunPlanSelectedGroup(
+  evaluation: PositionGroupEvaluation,
+  rank: number,
+  fallbackTargetDTE: number,
+): RunPlanSelectedGroup {
+  return {
+    askWeight: evaluation.executionTargets?.askWeight ?? 0,
+    bidWeight: evaluation.executionTargets?.bidWeight ?? 0,
+    currentReturnPct: evaluation.currentReturn,
+    midWeight: evaluation.executionTargets?.midWeight ?? 0,
+    rank,
+    secretBuyWeight: evaluation.secretBuyWeight ?? null,
+    targetAccountExposure:
+      evaluation.executionTargets?.targetAccountExposure ?? 0,
+    targetDTE: evaluation.executionTargets?.targetDTE ?? fallbackTargetDTE,
+    underlyingSymbol: evaluation.underlyingSymbol,
+  };
+}
+
 function mapCloseOrdersForRunHistory(
   closeOrders: Awaited<ReturnType<typeof executePositionEvaluations>>["closeOrders"],
 ): RunCloseOrder[] {
@@ -576,6 +598,32 @@ async function buildRunCycleContext(
     buyingPower,
   ).sort((a, b) => a.currentReturn - b.currentReturn);
 
+  const selectedUnderlyingSymbols = new Set(
+    plannedManageEvaluations.map((evaluation) => evaluation.underlyingSymbol),
+  );
+
+  const unselectedManageEvaluations = evaluationsWithGroupTargets
+    .filter((evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION")
+    .filter(
+      (evaluation) => !selectedUnderlyingSymbols.has(evaluation.underlyingSymbol),
+    )
+    .sort((a, b) => {
+      const aExposure = a.executionTargets?.targetAccountExposure ?? Number.NEGATIVE_INFINITY;
+      const bExposure = b.executionTargets?.targetAccountExposure ?? Number.NEGATIVE_INFINITY;
+
+      if (bExposure !== aExposure) {
+        return bExposure - aExposure;
+      }
+
+      if (a.currentReturn !== b.currentReturn) {
+        return a.currentReturn - b.currentReturn;
+      }
+
+      const aBuyWeight = a.secretBuyWeight ?? Number.NEGATIVE_INFINITY;
+      const bBuyWeight = b.secretBuyWeight ?? Number.NEGATIVE_INFINITY;
+      return bBuyWeight - aBuyWeight;
+    });
+
   const normalizedPlannedManageEvaluations = normalizeGroupExecutionTargetExposures(
     plannedManageEvaluations,
     runExecutionTargets.targetAccountExposure,
@@ -599,6 +647,14 @@ async function buildRunCycleContext(
 
   const plannedRows: RunPlanRow[] = [];
   const planDiagnostics: RunCyclePreview["plan"]["diagnostics"] = [];
+  const selectedGroups: RunPlanSelectedGroup[] = normalizedPlannedManageEvaluations.map(
+    (evaluation, index) =>
+      toRunPlanSelectedGroup(evaluation, index + 1, runExecutionTargets.targetDTE),
+  );
+  const unselectedGroups: RunPlanSelectedGroup[] = unselectedManageEvaluations.map(
+    (evaluation, index) =>
+      toRunPlanSelectedGroup(evaluation, index + 1, runExecutionTargets.targetDTE),
+  );
 
   let planningBudget = startingBudget;
   for (const [index, evaluation] of normalizedPlannedManageEvaluations.entries()) {
@@ -664,6 +720,8 @@ async function buildRunCycleContext(
       plan: {
         diagnostics: planDiagnostics,
         rows: plannedRows,
+        selectedGroups,
+        unselectedGroups,
         totalContracts: plannedRows.reduce((sum, row) => sum + row.quantity, 0),
         totalEstimatedCost: plannedRows.reduce(
           (sum, row) => sum + row.estimatedCost,
@@ -755,7 +813,7 @@ export default async function runBotCycle(
   const executionResults = await executePositionEvaluations(
     context.preview.accountNumber,
     context.accountBalances,
-    context.completedEvaluations,
+    context.evaluationsWithGroupTargets,
     context.runExecutionTargets,
   );
 

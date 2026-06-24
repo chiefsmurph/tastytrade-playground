@@ -21,6 +21,7 @@ import {
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
 import { getDefaultAccountNumber } from "../ipc-server";
+import { isSecretAutoSeedOrderSource } from "./order-sources";
 
 export interface CancelOrderResult {
   cancelled: boolean;
@@ -67,6 +68,15 @@ export async function cancelAllLiveOrders(
       continue;
     }
 
+    if (isSecretAutoSeedOrderSource(order.source)) {
+      results.push({
+        cancelled: false,
+        orderId,
+        skippedReason: "protected secret auto-seed order",
+      });
+      continue;
+    }
+
     const response = await tastytradeApi.orderService.cancelOrder(
       resolvedAccountNumber,
       orderId,
@@ -95,26 +105,62 @@ export async function executePositionEvaluations(
 
   const evaluationsWithTargets = evaluations.map((evaluation) => ({
     ...evaluation,
-    executionTargets: sharedExecutionTargets,
+    executionTargets: evaluation.executionTargets ?? sharedExecutionTargets,
   }));
+
+  const normalizeSelectedManageExposureTargets = (
+    selectedEvaluations: PositionGroupEvaluation[],
+  ): PositionGroupEvaluation[] => {
+    const totalTargetExposure = sharedExecutionTargets.targetAccountExposure;
+    const totalRawExposure = selectedEvaluations.reduce(
+      (sum, evaluation) => sum + (evaluation.executionTargets?.targetAccountExposure ?? 0),
+      0,
+    );
+
+    if (!(totalTargetExposure > 0) || !(totalRawExposure > 0)) {
+      return selectedEvaluations;
+    }
+
+    let allocatedExposure = 0;
+
+    return selectedEvaluations.map((evaluation, index) => {
+      const executionTargets = evaluation.executionTargets;
+      if (!executionTargets) {
+        return evaluation;
+      }
+
+      const normalizedExposure =
+        index === selectedEvaluations.length - 1
+          ? Math.round((totalTargetExposure - allocatedExposure) * 100) / 100
+          : Math.round(
+              totalTargetExposure *
+                (executionTargets.targetAccountExposure / totalRawExposure) *
+                100,
+            ) / 100;
+
+      allocatedExposure += normalizedExposure;
+
+      return {
+        ...evaluation,
+        executionTargets: {
+          ...executionTargets,
+          targetAccountExposure: normalizedExposure,
+        },
+      };
+    });
+  };
 
   const closeEvaluations = evaluationsWithTargets.filter(
     (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
   );
-  const manageEvaluations = selectManageEvaluationsByBuyingPower(
-    evaluationsWithTargets.filter(
-      (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
+  const manageEvaluations = normalizeSelectedManageExposureTargets(
+    selectManageEvaluationsByBuyingPower(
+      evaluationsWithTargets.filter(
+        (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
+      ),
+      getConservativeSpendableFunds(accountBalance),
     ),
-    getConservativeSpendableFunds(accountBalance),
-  ).sort((a, b) => {
-    const aExposure = a.executionTargets?.targetAccountExposure ?? 0;
-    const bExposure = b.executionTargets?.targetAccountExposure ?? 0;
-
-    if (bExposure !== aExposure) {
-      return bExposure - aExposure;
-    }
-    return a.currentReturn - b.currentReturn;
-  });
+  );
 
   const closeOrders = (
     await Promise.all(

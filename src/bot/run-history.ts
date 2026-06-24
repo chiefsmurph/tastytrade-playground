@@ -10,6 +10,18 @@ export interface RunPlanRow {
   underlyingSymbol: string;
 }
 
+export interface RunPlanSelectedGroup {
+  askWeight: number;
+  bidWeight: number;
+  currentReturnPct: number;
+  midWeight: number;
+  rank: number;
+  secretBuyWeight: number | null;
+  targetAccountExposure: number;
+  targetDTE: number;
+  underlyingSymbol: string;
+}
+
 export interface RunGroupReturn {
   askReturnPct: number;
   bidReturnPct: number;
@@ -70,6 +82,8 @@ export interface RunHistoryEntry {
       underlyingSymbol: string;
     }[];
     rows: RunPlanRow[];
+    selectedGroups?: RunPlanSelectedGroup[];
+    unselectedGroups?: RunPlanSelectedGroup[];
     totalContracts: number;
     totalEstimatedCost: number;
   };

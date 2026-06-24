@@ -6,20 +6,33 @@ import { normalizeInstrumentType, OrderPayload, roundOrderPrice } from "./action
 import { ProgrammaticAction } from "./evaluate-trading-strategy";
 import type { TastytradePlacedOrderResponse } from "~/core/types";
 import { getEffectiveBuyingPowerSummary } from "./effective-buying-power";
+import {
+  BOT_ORDER_SOURCE,
+  SECRET_AUTO_SEED_ORDER_SOURCE,
+} from "./order-sources";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 const DEFAULT_MAX_SEED_ORDER_COST = 500;
 
+export interface SeedSymbolOptions {
+  priceMode?: "ask" | "mid";
+  orderSource?: string;
+}
+
 export interface SeedSymbolResult {
   accountNumber: string;
   askPrice?: number;
+  bidPrice?: number;
   buyingPowerAvailable?: number;
   candidateSymbol?: string;
   dte?: number;
   dryRunResponse?: TastytradePlacedOrderResponse | unknown;
   estimatedOrderCost?: number;
+  limitPrice?: number;
   maxDTE?: number;
+  midPrice?: number;
   minDTE?: number;
+  priceMode?: "ask" | "mid";
   preferredDTE?: number;
   quoteSymbol?: string;
   orderResponse?: TastytradePlacedOrderResponse;
@@ -100,9 +113,12 @@ export async function seedSymbol(
   symbol: string,
   side: "call" | "put" = "call",
   accountNumber?: string,
+  options: SeedSymbolOptions = {},
 ): Promise<SeedSymbolResult> {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
   const normalizedSymbol = symbol.toUpperCase();
+  const priceMode = options.priceMode === "mid" ? "mid" : "ask";
+  const orderSource = options.orderSource?.trim() || BOT_ORDER_SOURCE;
 
   if (await hasOpenUnderlyingPosition(resolvedAccountNumber, normalizedSymbol)) {
     return {
@@ -207,35 +223,43 @@ export async function seedSymbol(
     quoteSymbol,
     3000,
   );
-  const askPrice = bidAsk?.ask ?? bidAsk?.bid;
+  const bidPrice = bidAsk?.bid ?? 0;
+  const askPrice = bidAsk?.ask ?? bidPrice;
+  const midPrice =
+    bidPrice > 0 && askPrice > 0 ? (bidPrice + askPrice) / 2 : askPrice || bidPrice;
+  const selectedPrice = priceMode === "mid" ? midPrice : askPrice;
 
-  if (!(askPrice && askPrice > 0)) {
+  if (!(selectedPrice && selectedPrice > 0)) {
     console.warn(
-      `No valid ask or bid price for quote symbol ${quoteSymbol}, skipping seed order. BidAsk:`,
+      `No valid ${priceMode} or fallback quote for ${quoteSymbol}, skipping seed order. BidAsk:`,
       bidAsk,
     );
     return {
       accountNumber: resolvedAccountNumber,
+      askPrice,
+      bidPrice,
       candidateSymbol,
       dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      midPrice,
       maxDTE,
       minDTE,
       preferredDTE,
+      priceMode,
       quoteSymbol,
       placedOrder: false,
       side,
-      skippedReason: "candidate ask quote unavailable",
+      skippedReason: `candidate ${priceMode} quote unavailable`,
       strategy,
       symbol: normalizedSymbol,
       usedDteFallback,
     };
   }
 
-  const limitPrice = roundOrderPrice(askPrice);
+  const limitPrice = roundOrderPrice(selectedPrice);
   const numericLimitPrice = Number(limitPrice);
 
   const order: OrderPayload = {
-    source: "tastytrade-playground",
+    source: orderSource,
     "time-in-force": "Day",
     "order-type": "Limit",
     price: limitPrice,
@@ -261,13 +285,17 @@ export async function seedSymbol(
     return {
       accountNumber: resolvedAccountNumber,
       askPrice,
+      bidPrice,
       buyingPowerAvailable,
       candidateSymbol,
       dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
       estimatedOrderCost,
+      limitPrice: numericLimitPrice,
       maxDTE,
+      midPrice,
       minDTE,
       placedOrder: false,
+      priceMode,
       preferredDTE,
       quoteSymbol,
       side,
@@ -282,13 +310,17 @@ export async function seedSymbol(
     return {
       accountNumber: resolvedAccountNumber,
       askPrice,
+      bidPrice,
       buyingPowerAvailable,
       candidateSymbol,
       dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
       estimatedOrderCost,
+      limitPrice: numericLimitPrice,
       maxDTE,
+      midPrice,
       minDTE,
       placedOrder: false,
+      priceMode,
       preferredDTE,
       quoteSymbol,
       side,
@@ -310,6 +342,7 @@ export async function seedSymbol(
     return {
       accountNumber: resolvedAccountNumber,
       askPrice,
+      bidPrice,
       buyingPowerAvailable,
       candidateSymbol,
       dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
@@ -318,9 +351,12 @@ export async function seedSymbol(
           ? ((error as Error & { response?: { data?: unknown } }).response?.data ?? error.message)
           : error,
       estimatedOrderCost,
+      limitPrice: numericLimitPrice,
       maxDTE,
+      midPrice,
       minDTE,
       placedOrder: false,
+      priceMode,
       preferredDTE,
       quoteSymbol,
       side,
@@ -339,13 +375,17 @@ export async function seedSymbol(
   return {
     accountNumber: resolvedAccountNumber,
     askPrice,
+    bidPrice,
     buyingPowerAvailable,
     candidateSymbol,
     dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
     dryRunResponse,
     estimatedOrderCost,
+    limitPrice: numericLimitPrice,
     maxDTE,
+    midPrice,
     minDTE,
+    priceMode,
     preferredDTE,
     quoteSymbol,
     orderResponse,

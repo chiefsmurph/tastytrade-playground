@@ -2,18 +2,24 @@ import { PositionGroupEvaluation } from "./evaluate-position";
 
 export const MIN_GROUP_ALLOCATION = 80;
 
-export function sortManageEvaluationsByBuyWeight(
+export function sortManageEvaluationsByTargetExposure(
   evaluations: PositionGroupEvaluation[],
 ): PositionGroupEvaluation[] {
   return [...evaluations].sort((left, right) => {
-    const leftBuyWeight = left.secretBuyWeight ?? Number.NEGATIVE_INFINITY;
-    const rightBuyWeight = right.secretBuyWeight ?? Number.NEGATIVE_INFINITY;
+    const leftTargetExposure = left.executionTargets?.targetAccountExposure ?? Number.NEGATIVE_INFINITY;
+    const rightTargetExposure = right.executionTargets?.targetAccountExposure ?? Number.NEGATIVE_INFINITY;
 
-    if (rightBuyWeight !== leftBuyWeight) {
-      return rightBuyWeight - leftBuyWeight;
+    if (rightTargetExposure !== leftTargetExposure) {
+      return rightTargetExposure - leftTargetExposure;
     }
 
-    return left.currentReturn - right.currentReturn;
+    if (left.currentReturn !== right.currentReturn) {
+      return left.currentReturn - right.currentReturn;
+    }
+
+    const leftBuyWeight = left.secretBuyWeight ?? Number.NEGATIVE_INFINITY;
+    const rightBuyWeight = right.secretBuyWeight ?? Number.NEGATIVE_INFINITY;
+    return rightBuyWeight - leftBuyWeight;
   });
 }
 
@@ -33,5 +39,5 @@ export function selectManageEvaluationsByBuyingPower(
     return [];
   }
 
-  return sortManageEvaluationsByBuyWeight(evaluations).slice(0, maxGroups);
+  return sortManageEvaluationsByTargetExposure(evaluations).slice(0, maxGroups);
 }
