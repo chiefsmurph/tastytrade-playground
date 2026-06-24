@@ -1,5 +1,5 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { getDefaultAccountNumber } from "~/core/default-account";
+import { getDefaultAccountNumber, getMarginAccountNumber } from "~/core/default-account";
 import { CurrentPosition } from "~/core/types";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
@@ -59,6 +59,11 @@ function getMaxSeedOrderCost(): number {
   return parsed;
 }
 
+function shouldSeedOnlyToMarginAccounts(): boolean {
+  const raw = process.env.BOT_SEED_ONLY_TO_MARGIN_ACCOUNTS?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 function extractDryRunSkipReason(error: unknown): string {
   if (!(error instanceof Error)) {
     return "seed order dry run failed";
@@ -105,7 +110,10 @@ export async function seedSymbol(
   accountNumber?: string,
   options: SeedSymbolOptions = {},
 ): Promise<SeedSymbolResult> {
-  const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+  const requestedAccountNumber = accountNumber?.trim();
+  const resolvedAccountNumber = shouldSeedOnlyToMarginAccounts()
+    ? await getMarginAccountNumber()
+    : requestedAccountNumber ?? (await getDefaultAccountNumber());
   const normalizedSymbol = symbol.toUpperCase();
   const priceMode = options.priceMode === "mid" ? "mid" : "ask";
   const orderSource = options.orderSource?.trim() || BOT_ORDER_SOURCE;
@@ -129,6 +137,7 @@ export async function seedSymbol(
         scope: "seed-symbol-candidate",
         symbol: normalizedSymbol,
         side,
+        requestedAccountNumber: requestedAccountNumber ?? null,
         resolvedAccountNumber,
         strategy,
         candidateDTE: candidate?.dte,

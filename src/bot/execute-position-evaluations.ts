@@ -24,7 +24,10 @@ import {
   getUpdatedBudgetAfterAllocation,
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
-import { getDefaultAccountNumber } from "~/core/default-account";
+import {
+  getDefaultAccountNumber,
+  isReadOnlyAccount,
+} from "~/core/default-account";
 import {
   getDoNotTouchGroupKeys,
   isEvaluationDoNotTouch,
@@ -59,6 +62,10 @@ export async function cancelAllLiveOrders(
   const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
 
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
+  if (isReadOnlyAccount(resolvedAccountNumber)) {
+    return [];
+  }
+
   const liveOrders = await tastytradeApi.orderService.getLiveOrders(
     resolvedAccountNumber,
   );
@@ -117,7 +124,8 @@ export async function executePositionEvaluations(
   evaluations: PositionGroupEvaluation[],
   runExecutionTargets?: ExecutionTargets,
 ): Promise<PositionEvaluationExecutionResult> {
-  const cancelledOrders = await cancelAllLiveOrders(accountNumber);
+  const readOnly = isReadOnlyAccount(accountNumber);
+  const cancelledOrders = readOnly ? [] : await cancelAllLiveOrders(accountNumber);
   const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
   const accountMarginOrCash = await getAccountMarginOrCash(accountNumber);
   const spendableFunds = getSpendableFundsForAccountType(
@@ -194,17 +202,28 @@ export async function executePositionEvaluations(
     (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
   );
 
-  const closeOrders = (
-    await Promise.all(
-      actionableCloseEvaluations.map((evaluation) =>
-        closePosition(
+  const closeOrders = readOnly
+    ? actionableCloseEvaluations.flatMap((evaluation) =>
+        evaluation.positionSnapshots.map((snapshot) => ({
           accountNumber,
-          evaluation,
-          evaluation.executionTargets ?? sharedExecutionTargets,
-        ),
-      ),
-    )
-  ).flat();
+          action: "CLOSE_POSITION" as const,
+          placedOrder: false,
+          skippedReason: "account is configured read-only",
+          symbol: snapshot.position.symbol,
+          underlyingSymbol: evaluation.underlyingSymbol,
+        })),
+      )
+    : (
+        await Promise.all(
+          actionableCloseEvaluations.map((evaluation) =>
+            closePosition(
+              accountNumber,
+              evaluation,
+              evaluation.executionTargets ?? sharedExecutionTargets,
+            ),
+          ),
+        )
+      ).flat();
 
   let budget = buildInitialBudget(
     spendableFunds,
@@ -212,6 +231,26 @@ export async function executePositionEvaluations(
     actionableEvaluations,
   );
   const allocationOrders: AllocationExecutionResult[] = [];
+
+  if (readOnly) {
+    for (const evaluation of manageEvaluations) {
+      allocationOrders.push({
+        accountNumber,
+        action: "MANAGE_ALLOCATION",
+        placedOrder: false,
+        routeOrders: [],
+        skippedReason: "account is configured read-only",
+        underlyingSymbol: evaluation.underlyingSymbol,
+      });
+    }
+
+    return {
+      allocationOrders,
+      cancelledOrders,
+      closeOrders,
+      evaluations: actionableEvaluations,
+    };
+  }
 
   for (const [index, evaluation] of manageEvaluations.entries()) {
     const groupsRemainingForAllocation = manageEvaluations.length - index;

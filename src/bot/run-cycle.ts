@@ -1,5 +1,9 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { getDefaultAccountNumber } from "~/core/default-account";
+import {
+  getDefaultAccountNumber,
+  getManagedAccountNumbers,
+  isReadOnlyAccount,
+} from "~/core/default-account";
 import {
   getConservativeSpendableFunds,
   getAccountBalanceNumber,
@@ -71,6 +75,7 @@ export interface RunCyclePreview {
     dynamicTakeProfitTarget: number;
     currentExposurePct: number;
     currentExposureValue: number;
+    readOnly: boolean;
     secondsSinceLastPositionsUpdate: number | null;
     routeWeights: {
       ask: number;
@@ -86,6 +91,10 @@ export interface RunCyclePreview {
     closePositionCount: number;
     manageAllocationCount: number;
   };
+}
+
+export interface MultiAccountRunCyclePreview {
+  accounts: RunCyclePreview[];
 }
 
 type RunCycleContext = {
@@ -142,6 +151,7 @@ function logRunSnapshot(preview: RunCyclePreview): void {
   console.log(
     `Secret Socket:    connected=${secretStatus.connected} positions=${secretStatus.cachedPositionsCount} secondsSinceLastPositionsUpdate=${secondsSinceLastPositionsUpdate}`,
   );
+  console.log(`Read Only:       ${preview.snapshot.readOnly ? "yes" : "no"}`);
   console.log("===============================================\n");
 }
 
@@ -520,6 +530,7 @@ async function buildRunCycleContext(
 ): Promise<RunCycleContext> {
   const resolvedAccountNumber =
     accountNumber ?? (await getDefaultAccountNumber());
+  const readOnly = isReadOnlyAccount(resolvedAccountNumber);
 
   const accountBalances: TastytradeAccountBalance =
     await tastytradeApi.balancesAndPositionsService.getAccountBalanceValues(
@@ -777,6 +788,7 @@ async function buildRunCycleContext(
         dynamicTakeProfitTarget,
         currentExposurePct,
         currentExposureValue: startingBudget.portfolioExposure,
+        readOnly,
         secondsSinceLastPositionsUpdate:
           secretSocketStatus.secondsSinceLastPositionsUpdate,
         routeWeights: {
@@ -803,16 +815,60 @@ async function buildRunCycleContext(
   };
 }
 
+export async function getRunCyclePreview(): Promise<MultiAccountRunCyclePreview>;
+export async function getRunCyclePreview(accountNumber: string): Promise<RunCyclePreview>;
 export async function getRunCyclePreview(
   accountNumber?: string,
-): Promise<RunCyclePreview> {
+): Promise<RunCyclePreview | MultiAccountRunCyclePreview> {
+  if (!accountNumber) {
+    const accountNumbers = await getManagedAccountNumbers();
+    const accounts = await Promise.all(
+      accountNumbers.map(async (managedAccountNumber) => {
+        const context = await buildRunCycleContext(managedAccountNumber);
+        return context.preview;
+      }),
+    );
+
+    return { accounts };
+  }
+
   const context = await buildRunCycleContext(accountNumber);
   return context.preview;
 }
 
+export async function runBotCycleLogOnly(): Promise<MultiAccountRunCyclePreview>;
+export async function runBotCycleLogOnly(accountNumber: string): Promise<RunCyclePreview>;
 export async function runBotCycleLogOnly(
   accountNumber?: string,
-): Promise<RunCyclePreview> {
+): Promise<RunCyclePreview | MultiAccountRunCyclePreview> {
+  if (!accountNumber) {
+    const accountNumbers = await getManagedAccountNumbers();
+    const accounts: RunCyclePreview[] = [];
+
+    for (const managedAccountNumber of accountNumbers) {
+      const context = await buildRunCycleContext(managedAccountNumber);
+
+      console.log({
+        accountNumber: context.preview.accountNumber,
+        run: "bot-cycle-log-only",
+      });
+
+      logRunSnapshot(context.preview);
+      logGroupReturns(context.preview.groups);
+      logExecutionTargetsByGroup(
+        context.evaluationsWithGroupTargets,
+        context.baseExecutionTargets,
+        new Date(),
+      );
+      logRunPlan(context.preview);
+      logStrategyDecisions(context.strategyDecisions);
+
+      accounts.push(context.preview);
+    }
+
+    return { accounts };
+  }
+
   const context = await buildRunCycleContext(accountNumber);
 
   console.log({
@@ -833,9 +889,23 @@ export async function runBotCycleLogOnly(
   return context.preview;
 }
 
+export default async function runBotCycle(): Promise<RunHistoryEntry[]>;
+export default async function runBotCycle(accountNumber: string): Promise<RunHistoryEntry>;
 export default async function runBotCycle(
   accountNumber?: string,
-): Promise<RunHistoryEntry> {
+): Promise<RunHistoryEntry | RunHistoryEntry[]> {
+  if (!accountNumber) {
+    const accountNumbers = await getManagedAccountNumbers();
+    const results: RunHistoryEntry[] = [];
+
+    for (const managedAccountNumber of accountNumbers) {
+      const result = await runBotCycle(managedAccountNumber);
+      results.push(result as RunHistoryEntry);
+    }
+
+    return results;
+  }
+
   await cancelAllLiveOrders(accountNumber);
 
   const context = await buildRunCycleContext(accountNumber);

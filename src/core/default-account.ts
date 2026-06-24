@@ -5,6 +5,28 @@ function normalizeMarginOrCash(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function normalizeAccountNumber(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+export function getReadOnlyAccountNumbers(): Set<string> {
+  const raw = process.env.BOT_READ_ONLY_ACCOUNTS?.trim();
+  if (!raw) {
+    return new Set();
+  }
+
+  return new Set(
+    raw
+      .split(",")
+      .map((part) => normalizeAccountNumber(part))
+      .filter((part) => part.length > 0),
+  );
+}
+
+export function isReadOnlyAccount(accountNumber: string): boolean {
+  return getReadOnlyAccountNumbers().has(normalizeAccountNumber(accountNumber));
+}
+
 let customerAccountsPromise: ReturnType<
   typeof tastytradeApi.accountsAndCustomersService.getCustomerAccounts
 > | null = null;
@@ -13,6 +35,51 @@ async function getCustomerAccounts() {
   customerAccountsPromise ??=
     tastytradeApi.accountsAndCustomersService.getCustomerAccounts();
   return customerAccountsPromise as Promise<TastytradeCustomerAccountResource[]>;
+}
+
+export async function getManagedAccountNumbers(): Promise<string[]> {
+  const accounts = await getCustomerAccounts();
+
+  return accounts
+    .filter((item: TastytradeCustomerAccountResource) => item.account?.["is-closed"] !== true)
+    .sort((left, right) => {
+      const leftType = normalizeMarginOrCash(left.account?.["margin-or-cash"]);
+      const rightType = normalizeMarginOrCash(right.account?.["margin-or-cash"]);
+
+      if (leftType === rightType) {
+        return String(left.account?.["account-number"] ?? "").localeCompare(
+          String(right.account?.["account-number"] ?? ""),
+        );
+      }
+
+      if (leftType === "margin") {
+        return -1;
+      }
+
+      if (rightType === "margin") {
+        return 1;
+      }
+
+      return 0;
+    })
+    .map((item: TastytradeCustomerAccountResource) => item.account?.["account-number"])
+    .filter((accountNumber): accountNumber is string => Boolean(accountNumber));
+}
+
+export async function getMarginAccountNumber(): Promise<string> {
+  const accounts = await getCustomerAccounts();
+  const marginAccount = accounts.find(
+    (item: TastytradeCustomerAccountResource) =>
+      normalizeMarginOrCash(item.account?.["margin-or-cash"]) === "margin" &&
+      item.account?.["is-closed"] !== true,
+  );
+
+  const accountNumber = marginAccount?.account?.["account-number"];
+  if (!accountNumber) {
+    throw new Error("No margin account available");
+  }
+
+  return accountNumber;
 }
 
 export async function getAccountMarginOrCash(
@@ -44,23 +111,15 @@ export async function getAccountMarginOrCash(
 }
 
 export async function getDefaultAccountNumber(): Promise<string> {
-  const accounts = await getCustomerAccounts();
+  try {
+    return await getMarginAccountNumber();
+  } catch {
+    const accountNumbers = await getManagedAccountNumbers();
+    const accountNumber = accountNumbers[0];
+    if (!accountNumber) {
+      throw new Error("No account number available");
+    }
 
-  const preferredAccount =
-    accounts.find(
-      (item: TastytradeCustomerAccountResource) =>
-        normalizeMarginOrCash(item.account?.["margin-or-cash"]) === "margin" &&
-        item.account?.["is-closed"] !== true,
-    ) ??
-    accounts.find(
-      (item: TastytradeCustomerAccountResource) =>
-        item.account?.["is-closed"] !== true,
-    );
-
-  const accountNumber = preferredAccount?.account?.["account-number"];
-  if (!accountNumber) {
-    throw new Error("No account number available");
+    return accountNumber;
   }
-
-  return accountNumber;
 }

@@ -8,18 +8,29 @@ export interface LastBotRunState {
   updatedAt: string | null;
 }
 
-const lastBotRunState: LastBotRunState = {
-  completedEvaluations: [],
-  executionResults: null,
-  updatedAt: null,
-};
+const lastBotRunStateByAccount = new Map<string, LastBotRunState>();
 
-export function getLastBotRunState(): LastBotRunState {
+export function getLastBotRunState(accountNumber?: string): LastBotRunState | Record<string, LastBotRunState> {
+  if (!accountNumber) {
+    return Object.fromEntries(lastBotRunStateByAccount.entries());
+  }
+
+  const existing = lastBotRunStateByAccount.get(accountNumber);
+
+  if (!existing) {
+    return {
+      accountNumber,
+      completedEvaluations: [],
+      executionResults: null,
+      updatedAt: null,
+    };
+  }
+
   return {
-    accountNumber: lastBotRunState.accountNumber,
-    completedEvaluations: lastBotRunState.completedEvaluations,
-    executionResults: lastBotRunState.executionResults,
-    updatedAt: lastBotRunState.updatedAt,
+    accountNumber: existing.accountNumber,
+    completedEvaluations: existing.completedEvaluations,
+    executionResults: existing.executionResults,
+    updatedAt: existing.updatedAt,
   };
 }
 
@@ -28,8 +39,10 @@ export function setLastBotRunState(
   completedEvaluations: PositionGroupEvaluation[],
   executionResults: PositionEvaluationExecutionResult,
 ) {
-  lastBotRunState.accountNumber = accountNumber;
-  lastBotRunState.completedEvaluations = completedEvaluations;
-  lastBotRunState.executionResults = executionResults;
-  lastBotRunState.updatedAt = new Date().toISOString();
+  lastBotRunStateByAccount.set(accountNumber, {
+    accountNumber,
+    completedEvaluations,
+    executionResults,
+    updatedAt: new Date().toISOString(),
+  });
 }

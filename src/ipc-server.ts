@@ -200,7 +200,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     runBotCycleLogOnly(accountNumber),
   "bot:getRunCyclePreview": async ([accountNumber]) =>
     getRunCyclePreview(accountNumber),
-  "bot:getLastRunCycle": async () => getLastBotRunState(),
+  "bot:getLastRunCycle": async ([accountNumber]) => getLastBotRunState(accountNumber),
   "bot:getRecentRunHistory": async ([limit]) => {
     const parsedLimit = limit ? Number(limit) : 20;
     return getRecentRunHistory(parsedLimit);
