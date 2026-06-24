@@ -21,6 +21,11 @@ import {
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
 import { getDefaultAccountNumber } from "../ipc-server";
+import {
+  getDoNotTouchGroupKeys,
+  isEvaluationDoNotTouch,
+  isOrderDoNotTouch,
+} from "./do-not-touch-groups";
 import { isSecretAutoSeedOrderSource } from "./order-sources";
 
 export interface CancelOrderResult {
@@ -46,6 +51,8 @@ function isTerminalOrderStatus(status: string | undefined): boolean {
 export async function cancelAllLiveOrders(
   accountNumber?: string,
 ): Promise<CancelOrderResult[]> {
+
+  const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
 
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
   const liveOrders = await tastytradeApi.orderService.getLiveOrders(
@@ -77,6 +84,15 @@ export async function cancelAllLiveOrders(
       continue;
     }
 
+    if (isOrderDoNotTouch(order, doNotTouchGroupKeys)) {
+      results.push({
+        cancelled: false,
+        orderId,
+        skippedReason: "protected do-not-touch group order",
+      });
+      continue;
+    }
+
     const response = await tastytradeApi.orderService.cancelOrder(
       resolvedAccountNumber,
       orderId,
@@ -98,6 +114,7 @@ export async function executePositionEvaluations(
   runExecutionTargets?: ExecutionTargets,
 ): Promise<PositionEvaluationExecutionResult> {
   const cancelledOrders = await cancelAllLiveOrders(accountNumber);
+  const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
 
   const sharedExecutionTargets =
     runExecutionTargets ??
@@ -107,6 +124,9 @@ export async function executePositionEvaluations(
     ...evaluation,
     executionTargets: evaluation.executionTargets ?? sharedExecutionTargets,
   }));
+  const actionableEvaluations = evaluationsWithTargets.filter(
+    (evaluation) => !isEvaluationDoNotTouch(evaluation, doNotTouchGroupKeys),
+  );
 
   const normalizeSelectedManageExposureTargets = (
     selectedEvaluations: PositionGroupEvaluation[],
@@ -155,16 +175,19 @@ export async function executePositionEvaluations(
   );
   const manageEvaluations = normalizeSelectedManageExposureTargets(
     selectManageEvaluationsByBuyingPower(
-      evaluationsWithTargets.filter(
+      actionableEvaluations.filter(
         (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
       ),
       getConservativeSpendableFunds(accountBalance),
     ),
   );
+  const actionableCloseEvaluations = actionableEvaluations.filter(
+    (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
+  );
 
   const closeOrders = (
     await Promise.all(
-      closeEvaluations.map((evaluation) =>
+      actionableCloseEvaluations.map((evaluation) =>
         closePosition(
           accountNumber,
           evaluation,
@@ -177,7 +200,7 @@ export async function executePositionEvaluations(
   let budget = buildInitialBudget(
     getConservativeSpendableFunds(accountBalance),
     getEffectiveTotalCapital(accountBalance),
-    evaluationsWithTargets,
+    actionableEvaluations,
   );
   const allocationOrders: AllocationExecutionResult[] = [];
 
@@ -197,7 +220,7 @@ export async function executePositionEvaluations(
     allocationOrders,
     cancelledOrders,
     closeOrders,
-    evaluations: evaluationsWithTargets,
+    evaluations: actionableEvaluations,
   };
 }
 

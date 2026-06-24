@@ -1,5 +1,6 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import { CurrentPosition } from "~/core/types";
+import { buildGroupKey, type PositionGroupSide } from "./do-not-touch-groups";
 import {
   buildExecutionStrategy,
   ExecutionTargets,
@@ -17,6 +18,7 @@ export interface PositionQuoteSnapshot {
 }
 
 export interface PositionGroupEvaluation {
+  groupKey: string;
   underlyingSymbol: string;
   positions: CurrentPosition[];
   positionSnapshots: PositionQuoteSnapshot[];
@@ -31,7 +33,7 @@ export function getUnderlyingSymbolForPosition(position: CurrentPosition): strin
   return (position["underlying-symbol"] as string | null | undefined)?.trim() || position.symbol;
 }
 
-function getOptionSideForPosition(position: CurrentPosition): "call" | "put" | null {
+export function getOptionSideForPosition(position: CurrentPosition): "call" | "put" | null {
   const trimmed = String(position.symbol ?? "").trim();
   const match = trimmed.match(/([CP])(\d+)$/i);
   if (!match) {
@@ -39,6 +41,12 @@ function getOptionSideForPosition(position: CurrentPosition): "call" | "put" | n
   }
 
   return match[1].toUpperCase() === "P" ? "put" : "call";
+}
+
+export function getGroupSideForPositions(
+  positions: CurrentPosition[],
+): PositionGroupSide {
+  return getOptionSideForPosition(positions[0]) ?? "none";
 }
 
 export function groupPositionsByUnderlying(
@@ -185,6 +193,10 @@ export async function evaluatePositionGroup(
       : 0;
 
   return {
+    groupKey: buildGroupKey(
+      getUnderlyingSymbolForPosition(positions[0]),
+      getGroupSideForPositions(positions),
+    ),
     underlyingSymbol: getUnderlyingSymbolForPosition(positions[0]),
     positions,
     positionSnapshots,

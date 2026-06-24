@@ -14,9 +14,11 @@ export interface RunPlanSelectedGroup {
   askWeight: number;
   bidWeight: number;
   currentReturnPct: number;
+  groupKey: string;
   midWeight: number;
   rank: number;
   secretBuyWeight: number | null;
+  strategyAction?: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
   targetAccountExposure: number;
   targetDTE: number;
   underlyingSymbol: string;
@@ -77,10 +79,12 @@ export interface RunHistoryEntry {
   plan: {
     diagnostics?: {
       currentReturnPct: number;
+      groupKey?: string;
       skippedReason: string;
       strategyAction: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
       underlyingSymbol: string;
     }[];
+    ignoredGroups?: RunPlanSelectedGroup[];
     rows: RunPlanRow[];
     selectedGroups?: RunPlanSelectedGroup[];
     unselectedGroups?: RunPlanSelectedGroup[];

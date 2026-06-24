@@ -30,6 +30,10 @@ import {
   getUpdatedBudgetAfterAllocation,
   manageAllocationForGroup,
 } from "./actions/manage-allocation";
+import {
+  getDoNotTouchGroupKeys,
+  isEvaluationDoNotTouch,
+} from "./do-not-touch-groups";
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
   selectManageEvaluationsByBuyingPower,
@@ -48,10 +52,12 @@ export interface RunCyclePreview {
   plan: {
     diagnostics: {
       currentReturnPct: number;
+      groupKey?: string;
       skippedReason: string;
       strategyAction: "MANAGE_ALLOCATION" | "CLOSE_POSITION";
       underlyingSymbol: string;
     }[];
+    ignoredGroups: RunPlanSelectedGroup[];
     rows: RunPlanRow[];
     selectedGroups: RunPlanSelectedGroup[];
     unselectedGroups: RunPlanSelectedGroup[];
@@ -142,6 +148,15 @@ function logRunPlan(preview: RunCyclePreview): void {
   console.log(
     `Strategy groups: manage=${preview.strategySummary.manageAllocationCount} close=${preview.strategySummary.closePositionCount}`,
   );
+
+  if (preview.plan.ignoredGroups.length > 0) {
+    console.log("Ignored do-not-touch groups:");
+    for (const group of preview.plan.ignoredGroups) {
+      console.log(
+        `- ${group.groupKey} (${group.strategyAction ?? "UNKNOWN"}, currentReturn=${formatPercent(group.currentReturnPct)})`,
+      );
+    }
+  }
 
   if (preview.plan.rows.length === 0) {
     console.log("No allocation orders planned for this cycle.");
@@ -457,9 +472,11 @@ function toRunPlanSelectedGroup(
     askWeight: evaluation.executionTargets?.askWeight ?? 0,
     bidWeight: evaluation.executionTargets?.bidWeight ?? 0,
     currentReturnPct: evaluation.currentReturn,
+    groupKey: evaluation.groupKey,
     midWeight: evaluation.executionTargets?.midWeight ?? 0,
     rank,
     secretBuyWeight: evaluation.secretBuyWeight ?? null,
+    strategyAction: evaluation.strategy.action,
     targetAccountExposure:
       evaluation.executionTargets?.targetAccountExposure ?? 0,
     targetDTE: evaluation.executionTargets?.targetDTE ?? fallbackTargetDTE,
@@ -531,12 +548,37 @@ async function buildRunCycleContext(
   );
 
   const buyingPower = getConservativeSpendableFunds(accountBalances);
+  const doNotTouchGroupKeys = getDoNotTouchGroupKeys();
 
   const completedEvaluations = await getPositionEvaluations(
     resolvedAccountNumber,
   );
+  const ignoredEvaluations = completedEvaluations.filter((evaluation) =>
+    isEvaluationDoNotTouch(evaluation, doNotTouchGroupKeys),
+  );
+  const actionableCompletedEvaluations = completedEvaluations.filter(
+    (evaluation) => !isEvaluationDoNotTouch(evaluation, doNotTouchGroupKeys),
+  );
   const groupReturns = computeGroupReturns(completedEvaluations);
-  const strategyDecisions = computeStrategyDecisions(completedEvaluations);
+  const strategyDecisions = computeStrategyDecisions(completedEvaluations).map(
+    (decision) => {
+      const matchedEvaluation = completedEvaluations.find(
+        (evaluation) => evaluation.underlyingSymbol === decision.underlyingSymbol,
+      );
+
+      if (
+        matchedEvaluation &&
+        isEvaluationDoNotTouch(matchedEvaluation, doNotTouchGroupKeys)
+      ) {
+        return {
+          ...decision,
+          reason: `DO_NOT_TOUCH group configured - ${decision.reason}`,
+        };
+      }
+
+      return decision;
+    },
+  );
   const currentTime = new Date();
 
   startSecretSocketConnection();
@@ -552,7 +594,7 @@ async function buildRunCycleContext(
   const startingBudget = buildInitialBudget(
     buyingPower,
     getEffectiveTotalCapital(accountBalances),
-    completedEvaluations,
+    actionableCompletedEvaluations,
   );
 
   const currentExposurePct =
@@ -565,7 +607,7 @@ async function buildRunCycleContext(
   );
 
   // Calculate per-group execution targets based on position stats
-  const evaluationsWithGroupTargets = completedEvaluations.map((evaluation) => {
+  const evaluationsWithGroupTargets = actionableCompletedEvaluations.map((evaluation) => {
     const weightedAverageFill = evaluation.metrics.weightedAverageFill;
     const askReturnPerc =
       weightedAverageFill > 0
@@ -647,6 +689,10 @@ async function buildRunCycleContext(
 
   const plannedRows: RunPlanRow[] = [];
   const planDiagnostics: RunCyclePreview["plan"]["diagnostics"] = [];
+  const ignoredGroups: RunPlanSelectedGroup[] = ignoredEvaluations.map(
+    (evaluation, index) =>
+      toRunPlanSelectedGroup(evaluation, index + 1, runExecutionTargets.targetDTE),
+  );
   const selectedGroups: RunPlanSelectedGroup[] = normalizedPlannedManageEvaluations.map(
     (evaluation, index) =>
       toRunPlanSelectedGroup(evaluation, index + 1, runExecutionTargets.targetDTE),
@@ -691,6 +737,7 @@ async function buildRunCycleContext(
     if (plannedQuantity < 1) {
       planDiagnostics.push({
         currentReturnPct: evaluation.currentReturn,
+        groupKey: evaluation.groupKey,
         skippedReason:
           planResult.skippedReason ??
           "allocated quantity rounded to zero for all routes",
@@ -719,6 +766,7 @@ async function buildRunCycleContext(
       groups: groupReturns,
       plan: {
         diagnostics: planDiagnostics,
+        ignoredGroups,
         rows: plannedRows,
         selectedGroups,
         unselectedGroups,
@@ -745,10 +793,10 @@ async function buildRunCycleContext(
         totalCapital: startingBudget.totalCapital,
       },
       strategySummary: {
-        closePositionCount: completedEvaluations.filter(
+        closePositionCount: actionableCompletedEvaluations.filter(
           (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
         ).length,
-        manageAllocationCount: completedEvaluations.filter(
+        manageAllocationCount: actionableCompletedEvaluations.filter(
           (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
         ).length,
       },
@@ -813,7 +861,7 @@ export default async function runBotCycle(
   const executionResults = await executePositionEvaluations(
     context.preview.accountNumber,
     context.accountBalances,
-    context.evaluationsWithGroupTargets,
+    context.completedEvaluations,
     context.runExecutionTargets,
   );
 
