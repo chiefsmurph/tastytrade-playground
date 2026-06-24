@@ -1,11 +1,14 @@
 export {
 	getCachedSecretSourcePositions,
+	getSecretSocketStatus,
+	startSecretSocketConnection,
+	getSecretPositionsSourceKey,
+} from "./secret-socket-state";
+export {
 	getSecretBuyWeightForSymbol,
 	getSecretPositionSignalsForSymbol,
 	getSecretExecutionTargetForSymbol,
 	getSecretExecutionTargetForRun,
-	getSecretSocketStatus,
-	startSecretSocketConnection,
 } from "./secret-execution-target";
 export {
 	buildDebugSecretExecutionTargetPayload,
