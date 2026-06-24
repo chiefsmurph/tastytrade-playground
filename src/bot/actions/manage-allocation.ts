@@ -1,4 +1,5 @@
 import {
+  getConservativeSpendableFunds,
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
 } from "~/core/account-balance";
@@ -632,10 +633,7 @@ export async function getCurrentAllocationBudget(
   ]);
 
   return buildInitialBudget(
-    getAccountBalanceNumber(
-      accountBalance,
-      "derivative-buying-power",
-    ),
+    getConservativeSpendableFunds(accountBalance),
     getEffectiveTotalCapital(accountBalance),
     evaluations,
   );

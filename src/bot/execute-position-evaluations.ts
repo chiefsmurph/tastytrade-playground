@@ -1,4 +1,5 @@
 import {
+  getConservativeSpendableFunds,
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
 } from "~/core/account-balance";
@@ -124,10 +125,7 @@ export async function executePositionEvaluations(
   ).flat();
 
   let budget = buildInitialBudget(
-    getAccountBalanceNumber(
-      accountBalance,
-      "derivative-buying-power",
-    ),
+    getConservativeSpendableFunds(accountBalance),
     getEffectiveTotalCapital(accountBalance),
     evaluationsWithTargets,
   );

@@ -28,6 +28,22 @@ export function getSignedPendingCash(accountBalance: TastytradeAccountBalance): 
   return pendingCash;
 }
 
+export function getConservativeSpendableFunds(
+  accountBalance: TastytradeAccountBalance,
+): number {
+  const candidates = [
+    getAccountBalanceNumber(accountBalance, "cash-balance"),
+    getAccountBalanceNumber(accountBalance, "derivative-buying-power"),
+    getAccountBalanceNumber(accountBalance, "cash-settle-balance"),
+  ].filter((value) => Number.isFinite(value) && value > 0);
+
+  if (candidates.length === 0) {
+    return 0;
+  }
+
+  return Math.min(...candidates);
+}
+
 export function getEffectiveTotalCapital(accountBalance: TastytradeAccountBalance): number {
   const derivativeBuyingPower = getAccountBalanceNumber(
     accountBalance,

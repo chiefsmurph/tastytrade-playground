@@ -1,5 +1,6 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import {
+  getConservativeSpendableFunds,
   getAccountBalanceNumber,
   getEffectiveTotalCapital,
 } from "~/core/account-balance";
@@ -460,10 +461,7 @@ async function buildRunCycleContext(
     ),
   );
 
-  const buyingPower = getAccountBalanceNumber(
-    accountBalances,
-    "derivative-buying-power",
-  );
+  const buyingPower = getConservativeSpendableFunds(accountBalances);
 
   const completedEvaluations = await getPositionEvaluations(
     resolvedAccountNumber,
