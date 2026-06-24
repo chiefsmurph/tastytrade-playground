@@ -1,8 +1,15 @@
 import { io } from "socket.io-client";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
-import seedSymbol from "../seed-symbol";
-import { SECRET_AUTO_SEED_ORDER_SOURCE } from "../order-sources";
-import { SecretDataUpdatePayload, SecretSourcePosition } from "./types";
+import {
+  isAnySecretAutoSeedEnabled,
+  maybeAutoSeedFromSecretPositions,
+  maybeAutoSeedFromTickerRecs,
+} from "./secret-auto-seed";
+import {
+  SecretDataUpdatePayload,
+  SecretSourcePosition,
+  SecretTickerRecPick,
+} from "./types";
 
 const SECRET_SOCKET_EVENT = "server:data-update";
 
@@ -11,107 +18,8 @@ let cachedSourcePositions: SecretSourcePosition[] = [];
 let hasConnectedSecretSocket = false;
 let secretSocketIsConnected = false;
 let lastSecretPositionsUpdateAt: Date | null = null;
-const lastAutoSeedAtBySymbol = new Map<string, number>();
-
-function shouldAutoSeedOnSecretUpdate(): boolean {
-  const raw = process.env.SECRET_AUTO_SEED_ON_UPDATE?.trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
-}
-
-function getAutoSeedCooldownMs(): number {
-  const raw = process.env.SECRET_AUTO_SEED_COOLDOWN_MS?.trim();
-  if (!raw) {
-    return 10 * 60 * 1000;
-  }
-
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return 10 * 60 * 1000;
-  }
-
-  return parsed;
-}
-
-function normalizeSideForSeed(
-  position: SecretSourcePosition,
-): "call" | "put" | null {
-  const raw = String(position.side ?? "").trim().toLowerCase();
-  if (raw === "call" || raw === "c") {
-    return "call";
-  }
-  if (raw === "put" || raw === "p") {
-    return "put";
-  }
-
-  return null;
-}
-
-function hasQualityToBuy(position: SecretSourcePosition): boolean {
-  const raw = position.qualityToBuy;
-
-  if (typeof raw === "boolean") {
-    return raw;
-  }
-
-  if (typeof raw === "number") {
-    return raw === 1;
-  }
-
-  const normalized = String(raw ?? "").trim().toLowerCase();
-  return normalized === "true" || normalized === "1" || normalized === "yes";
-}
-
-async function maybeAutoSeedFromSecretPositions(
-  sourcePositions: SecretSourcePosition[],
-): Promise<void> {
-  if (!shouldAutoSeedOnSecretUpdate()) {
-    return;
-  }
-
-  const cooldownMs = getAutoSeedCooldownMs();
-  const now = Date.now();
-
-  for (const position of sourcePositions) {
-    const symbol = String(position.ticker ?? "").trim().toUpperCase();
-    if (!symbol) {
-      continue;
-    }
-
-    if (!hasQualityToBuy(position)) {
-      continue;
-    }
-
-    const side = normalizeSideForSeed(position) ?? "call";
-    const lastSeedAt = lastAutoSeedAtBySymbol.get(symbol) ?? 0;
-    if (now - lastSeedAt < cooldownMs) {
-      continue;
-    }
-
-    try {
-      const result = await seedSymbol(symbol, side, undefined, {
-        orderSource: SECRET_AUTO_SEED_ORDER_SOURCE,
-        priceMode: "mid",
-      });
-      lastAutoSeedAtBySymbol.set(symbol, now);
-      console.log(
-        JSON.stringify(
-          {
-            scope: "secret-auto-seed",
-            symbol,
-            side,
-            result,
-            timestamp: new Date(now).toISOString(),
-          },
-          null,
-          2,
-        ),
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[secret-auto-seed] failed for ${symbol}: ${message}`);
-    }
-  }
-}
+let lastSecretTickerRecsUpdateAt: Date | null = null;
+let cachedTickerRecsPicks: SecretTickerRecPick[] = [];
 
 function getSecretPositionsSourceKey(): string | null {
   const configured = process.env.SECRET_DATA_UPDATE_POSITIONS_KEY?.trim();
@@ -132,12 +40,19 @@ function getSecretSocketTimeoutMs(): number | null {
   return parsed;
 }
 
-function isSecretModuleConfigured(): boolean {
+function isSecretSocketConfigured(): boolean {
   const socketUrl = process.env.SECRET_SOCKET_URL?.trim();
-  const sourceKey = getSecretPositionsSourceKey();
   const timeoutMs = getSecretSocketTimeoutMs();
 
-  return Boolean(socketUrl) && Boolean(sourceKey) && timeoutMs != null;
+  return Boolean(socketUrl) && timeoutMs != null;
+}
+
+function isSecretModuleConfigured(): boolean {
+  const sourceKey = getSecretPositionsSourceKey();
+  return (
+    isSecretSocketConfigured() &&
+    (Boolean(sourceKey) || isAnySecretAutoSeedEnabled())
+  );
 }
 
 function roundToTwoDecimals(value: number): number {
@@ -263,6 +178,23 @@ function updateCachedPositionsFromPayload(payload: SecretDataUpdatePayload): voi
   void maybeAutoSeedFromSecretPositions(cachedSourcePositions);
 }
 
+function updateTickerRecsFromPayload(payload: SecretDataUpdatePayload): void {
+  const rawTickerRecs = payload.tickerRecs;
+  if (!rawTickerRecs || typeof rawTickerRecs !== "object") {
+    return;
+  }
+
+  const picks = (rawTickerRecs as { picks?: unknown }).picks;
+  if (!Array.isArray(picks)) {
+    return;
+  }
+
+  cachedTickerRecsPicks = picks as SecretTickerRecPick[];
+  lastSecretTickerRecsUpdateAt = new Date();
+
+  void maybeAutoSeedFromTickerRecs(cachedTickerRecsPicks);
+}
+
 export function startSecretSocketConnection(): void {
   if (hasConnectedSecretSocket) {
     return;
@@ -286,6 +218,7 @@ export function startSecretSocketConnection(): void {
 
   secretSocket.on(SECRET_SOCKET_EVENT, (payload: SecretDataUpdatePayload) => {
     updateCachedPositionsFromPayload(payload);
+    updateTickerRecsFromPayload(payload);
   });
 
   secretSocket.on("connect", () => {
@@ -314,7 +247,7 @@ export async function getSecretExecutionTargetForRun(options: {
   baseTargets: ExecutionTargets;
   symbols: string[];
 }): Promise<ExecutionTargets | null> {
-  if (!isSecretModuleConfigured()) {
+  if (!isSecretModuleConfigured() || !getSecretPositionsSourceKey()) {
     return null;
   }
 
@@ -335,7 +268,7 @@ export async function getSecretExecutionTargetForRun(options: {
 }
 
 export function getSecretBuyWeightForSymbol(symbol: string): number | null {
-  if (!isSecretModuleConfigured()) {
+  if (!isSecretModuleConfigured() || !getSecretPositionsSourceKey()) {
     return null;
   }
 
@@ -351,7 +284,7 @@ export interface SecretPositionSignals {
 }
 
 export function getSecretPositionSignalsForSymbol(symbol: string): SecretPositionSignals | null {
-  if (!isSecretModuleConfigured()) {
+  if (!isSecretModuleConfigured() || !getSecretPositionsSourceKey()) {
     return null;
   }
 
@@ -384,7 +317,7 @@ export function getSecretExecutionTargetForSymbol(options: {
   baseTargets: ExecutionTargets;
   symbol: string;
 }): ExecutionTargets | null {
-  if (!isSecretModuleConfigured()) {
+  if (!isSecretModuleConfigured() || !getSecretPositionsSourceKey()) {
     return null;
   }
 
@@ -402,7 +335,7 @@ export function getSecretExecutionTargetForSymbol(options: {
 }
 
 export function getCachedSecretSourcePositions(): SecretSourcePosition[] {
-  if (!isSecretModuleConfigured()) {
+  if (!isSecretModuleConfigured() || !getSecretPositionsSourceKey()) {
     return [];
   }
 
@@ -411,10 +344,13 @@ export function getCachedSecretSourcePositions(): SecretSourcePosition[] {
 
 export interface SecretSocketStatus {
   cachedPositionsCount: number;
+  cachedTickerRecsPicksCount: number;
   connected: boolean;
   hasConnected: boolean;
   lastPositionsUpdateAt: string | null;
+  lastTickerRecsUpdateAt: string | null;
   secondsSinceLastPositionsUpdate: number | null;
+  secondsSinceLastTickerRecsUpdate: number | null;
   moduleEnabled: boolean;
   positionsSourceKey: string | null;
   socketTimeoutMs: number | null;
@@ -430,13 +366,20 @@ export function getSecretSocketStatus(): SecretSocketStatus {
 
   return {
     cachedPositionsCount: moduleEnabled ? cachedSourcePositions.length : 0,
+    cachedTickerRecsPicksCount: moduleEnabled ? cachedTickerRecsPicks.length : 0,
     connected: moduleEnabled ? secretSocketIsConnected : false,
     hasConnected: hasConnectedSecretSocket,
     lastPositionsUpdateAt:
       moduleEnabled ? lastSecretPositionsUpdateAt?.toISOString() ?? null : null,
+    lastTickerRecsUpdateAt:
+      moduleEnabled ? lastSecretTickerRecsUpdateAt?.toISOString() ?? null : null,
     secondsSinceLastPositionsUpdate:
       moduleEnabled && lastSecretPositionsUpdateAt
       ? Math.max(0, (now - lastSecretPositionsUpdateAt.getTime()) / 1000)
+      : null,
+    secondsSinceLastTickerRecsUpdate:
+      moduleEnabled && lastSecretTickerRecsUpdateAt
+      ? Math.max(0, (now - lastSecretTickerRecsUpdateAt.getTime()) / 1000)
       : null,
     moduleEnabled,
     positionsSourceKey,
