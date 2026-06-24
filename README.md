@@ -127,6 +127,7 @@ Supported IPC commands
 
 - `core:getBidAskForSymbol <symbol> [timeoutMs]`
 - `core:getUnderlyingPrice <symbol> [timeoutMs]`
+- `core:getPositionsAndBalances [accountNumber]`
 - `core:fetchOptionChainsWithVolume <symbol>`
 - `bot:getOptionCandidates <symbol> [call|put]`
 - `bot:getTopOptionCandidateForSymbol <symbol> [call|put]`
@@ -143,6 +144,7 @@ Supported IPC commands
 - `bot:startMarketOpenScheduler`
 - `bot:stopMarketOpenScheduler`
 - `bot:getMarketOpenSchedulerStatus`
+- `core:listCommands`
 
 Market-open scheduler
 

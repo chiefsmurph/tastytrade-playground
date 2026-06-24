@@ -3,14 +3,31 @@ import { sendIpcCommand } from "./ipc-client.js";
 
 const [, , command, ...args] = process.argv;
 
-function usage() {
-  console.error("Usage: node run <namespace:function> [args...]");
-  console.error("Example: node run core:getBidAskForSymbol AAPL");
-  process.exit(1);
+async function usage(exitCode = 0) {
+  console.log("Usage: node run <namespace:function> [args...]");
+  console.log("Example: node run core:getBidAskForSymbol AAPL");
+  console.log("\nOptions:");
+  console.log("  -h, --help   Show this help message");
+
+  try {
+    const commands = await sendIpcCommand("core:listCommands", []);
+    if (Array.isArray(commands) && commands.length > 0) {
+      console.log("\nAvailable IPC commands:");
+      for (const item of commands) {
+        console.log(`- ${item}`);
+      }
+    }
+  } catch {
+    console.log("\nAvailable IPC commands:");
+    console.log("  Start the server first with: npm run start:tsx");
+    console.log("  Then run: node run core:listCommands");
+  }
+
+  process.exit(exitCode);
 }
 
-if (!command) {
-  usage();
+if (!command || command === "--help" || command === "-h") {
+  await usage(command ? 0 : 1);
 }
 
 try {

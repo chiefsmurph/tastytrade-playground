@@ -12,6 +12,9 @@ import {
 } from "./evaluate-trading-strategy";
 import { closePosition, ClosePositionResult } from "./actions/close-position";
 import {
+  selectManageEvaluationsByBuyingPower,
+} from "./group-allocation-priority";
+import {
   AllocationExecutionResult,
   buildInitialBudget,
   getUpdatedBudgetAfterAllocation,
@@ -98,19 +101,20 @@ export async function executePositionEvaluations(
   const closeEvaluations = evaluationsWithTargets.filter(
     (evaluation) => evaluation.strategy.action === "CLOSE_POSITION",
   );
-  const manageEvaluations = evaluationsWithTargets
-    .filter(
+  const manageEvaluations = selectManageEvaluationsByBuyingPower(
+    evaluationsWithTargets.filter(
       (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
-    )
-    .sort((a, b) => {
-      const aExposure = a.executionTargets?.targetAccountExposure ?? 0;
-      const bExposure = b.executionTargets?.targetAccountExposure ?? 0;
+    ),
+    getConservativeSpendableFunds(accountBalance),
+  ).sort((a, b) => {
+    const aExposure = a.executionTargets?.targetAccountExposure ?? 0;
+    const bExposure = b.executionTargets?.targetAccountExposure ?? 0;
 
-      if (bExposure !== aExposure) {
-        return bExposure - aExposure;
-      }
-      return a.currentReturn - b.currentReturn;
-    });
+    if (bExposure !== aExposure) {
+      return bExposure - aExposure;
+    }
+    return a.currentReturn - b.currentReturn;
+  });
 
   const closeOrders = (
     await Promise.all(

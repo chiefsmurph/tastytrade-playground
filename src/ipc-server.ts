@@ -9,6 +9,7 @@ import {
   resetOptionMarketSnapshotCacheStats,
   getTopOptionCandidateForSymbol,
 } from "./bot/get-option-candidates-for-symbol";
+import { getPositionsAndBalances } from "./core/get-positions-and-balances";
 import {
   getTimeOfDayExecutionTargetsForPstTime as getTargetsForPstTime,
 } from "./bot/evaluate-trading-strategy";
@@ -68,6 +69,11 @@ export async function getDefaultAccountNumber(): Promise<string> {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+  "core:listCommands": async () => {
+    return Object.keys(commandHandlers).sort((left, right) =>
+      left.localeCompare(right),
+    );
+  },
   "core:getBidAskForSymbol": async ([symbol, timeoutMs]) => {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
@@ -77,6 +83,9 @@ const commandHandlers: Record<string, CommandHandler> = {
     assertArg(symbol, "symbol");
     const parsedTimeout = timeoutMs ? Number(timeoutMs) : undefined;
     return tastytradeApi.johnsService.getUnderlyingPrice(symbol, parsedTimeout);
+  },
+  "core:getPositionsAndBalances": async ([accountNumber]) => {
+    return getPositionsAndBalances(accountNumber);
   },
   "core:cancelAllLiveOrders": async ([accountNumber]) => {
     const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());

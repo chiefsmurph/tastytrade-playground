@@ -31,6 +31,9 @@ import {
 } from "./actions/manage-allocation";
 import { PositionGroupEvaluation } from "./evaluate-position";
 import {
+  selectManageEvaluationsByBuyingPower,
+} from "./group-allocation-priority";
+import {
   getCachedSecretSourcePositions,
   getSecretPositionSignalsForSymbol,
   getSecretSocketStatus,
@@ -393,6 +396,50 @@ function computeStrategyDecisions(
     });
 }
 
+function normalizeGroupExecutionTargetExposures(
+  evaluations: PositionGroupEvaluation[],
+  totalTargetExposure: number,
+): PositionGroupEvaluation[] {
+  const roundToTwoDecimals = (value: number): number =>
+    Math.round(value * 100) / 100;
+
+  const totalRawExposure = evaluations.reduce(
+    (sum, evaluation) => sum + (evaluation.executionTargets?.targetAccountExposure ?? 0),
+    0,
+  );
+
+  if (!(totalRawExposure > 0) || !(totalTargetExposure > 0)) {
+    return evaluations;
+  }
+
+  let allocatedExposure = 0;
+
+  return evaluations.map((evaluation, index) => {
+    const executionTargets = evaluation.executionTargets;
+    if (!executionTargets) {
+      return evaluation;
+    }
+
+    const normalizedExposure =
+      index === evaluations.length - 1
+        ? roundToTwoDecimals(totalTargetExposure - allocatedExposure)
+        : roundToTwoDecimals(
+            totalTargetExposure *
+              (executionTargets.targetAccountExposure / totalRawExposure),
+          );
+
+    allocatedExposure += normalizedExposure;
+
+    return {
+      ...evaluation,
+      executionTargets: {
+        ...executionTargets,
+        targetAccountExposure: normalizedExposure,
+      },
+    };
+  });
+}
+
 function parseOptionalNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -522,18 +569,29 @@ async function buildRunCycleContext(
     };
   });
 
-  const plannedManageEvaluations = evaluationsWithGroupTargets
-    .filter((evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION")
-    .sort((a, b) => a.currentReturn - b.currentReturn);
+  const plannedManageEvaluations = selectManageEvaluationsByBuyingPower(
+    evaluationsWithGroupTargets.filter(
+      (evaluation) => evaluation.strategy.action === "MANAGE_ALLOCATION",
+    ),
+    buyingPower,
+  ).sort((a, b) => a.currentReturn - b.currentReturn);
+
+  const normalizedPlannedManageEvaluations = normalizeGroupExecutionTargetExposures(
+    plannedManageEvaluations,
+    runExecutionTargets.targetAccountExposure,
+  );
 
   // For snapshot, use average of all planned group targets
-  const plannedGroupTargets = plannedManageEvaluations
+  const plannedGroupTargets = normalizedPlannedManageEvaluations
     .map((e) => e.executionTargets)
     .filter((t): t is typeof runExecutionTargets => Boolean(t));
   
   const snapshotExecutionTargets =
     plannedGroupTargets.length > 0
-      ? averageExecutionTargets(plannedGroupTargets)
+      ? {
+          ...averageExecutionTargets(plannedGroupTargets),
+          targetAccountExposure: runExecutionTargets.targetAccountExposure,
+        }
       : runExecutionTargets;
 
   const targetExposureValue =
@@ -543,9 +601,9 @@ async function buildRunCycleContext(
   const planDiagnostics: RunCyclePreview["plan"]["diagnostics"] = [];
 
   let planningBudget = startingBudget;
-  for (const [index, evaluation] of plannedManageEvaluations.entries()) {
+  for (const [index, evaluation] of normalizedPlannedManageEvaluations.entries()) {
     const groupsRemainingForAllocation =
-      plannedManageEvaluations.length - index;
+      normalizedPlannedManageEvaluations.length - index;
     const planResult = await manageAllocationForGroup(
       resolvedAccountNumber,
       evaluation,
