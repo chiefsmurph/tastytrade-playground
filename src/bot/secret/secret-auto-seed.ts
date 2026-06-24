@@ -4,6 +4,9 @@ import { SecretSourcePosition, SecretTickerRecPick } from "./types";
 
 const lastAutoSeedAtBySymbol = new Map<string, number>();
 
+const DEFAULT_AUTO_SEED_START_MINUTE = 6 * 60 + 30;
+const DEFAULT_AUTO_SEED_END_MINUTE = 12 * 60 + 15;
+
 export function shouldAutoSeedOnSecretPositionsUpdate(): boolean {
   const raw = process.env.SECRET_AUTO_SEED_ON_POSITIONS_UPDATE
     ?.trim()
@@ -23,6 +26,49 @@ export function isAnySecretAutoSeedEnabled(): boolean {
     shouldAutoSeedOnSecretPositionsUpdate() ||
     shouldAutoSeedOnTickerRecsUpdate()
   );
+}
+
+function parseMinuteOfDay(value: string | undefined): number | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const match = trimmed.match(/^(?:[01]?\d|2[0-3]):[0-5]\d$/);
+  if (!match) {
+    return null;
+  }
+
+  const [hoursText, minutesText] = trimmed.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function getAutoSeedWindowStartMinute(): number {
+  return (
+    parseMinuteOfDay(process.env.SECRET_AUTO_SEED_START_TIME) ??
+    DEFAULT_AUTO_SEED_START_MINUTE
+  );
+}
+
+function getAutoSeedWindowEndMinute(): number {
+  return (
+    parseMinuteOfDay(process.env.SECRET_AUTO_SEED_END_TIME) ??
+    DEFAULT_AUTO_SEED_END_MINUTE
+  );
+}
+
+function isWithinAutoSeedWindow(currentTime: Date): boolean {
+  const minuteOfDay = currentTime.getHours() * 60 + currentTime.getMinutes();
+  const startMinute = getAutoSeedWindowStartMinute();
+  const endMinute = getAutoSeedWindowEndMinute();
+
+  return minuteOfDay >= startMinute && minuteOfDay <= endMinute;
 }
 
 function getAutoSeedCooldownMs(): number {
@@ -125,6 +171,10 @@ export async function maybeAutoSeedFromSecretPositions(
     return;
   }
 
+  if (!isWithinAutoSeedWindow(new Date())) {
+    return;
+  }
+
   for (const position of sourcePositions) {
     const symbol = String(position.ticker ?? "").trim().toUpperCase();
     if (!symbol) {
@@ -148,6 +198,10 @@ export async function maybeAutoSeedFromTickerRecs(
   picks: SecretTickerRecPick[],
 ): Promise<void> {
   if (!shouldAutoSeedOnTickerRecsUpdate()) {
+    return;
+  }
+
+  if (!isWithinAutoSeedWindow(new Date())) {
     return;
   }
 
