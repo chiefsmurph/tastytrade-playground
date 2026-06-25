@@ -64,6 +64,19 @@ export interface RunCloseOrder {
   fills: RunCloseOrderFill[];
 }
 
+export interface RunSeedOrder {
+  accountNumber: string;
+  askReturnPctSource: number;
+  candidateSymbol: string | null;
+  estimatedOrderCost: number | null;
+  limitPrice: number | null;
+  placedOrder: boolean;
+  side: "call" | "put";
+  skippedReason: string | null;
+  sourceAccountNumber: string;
+  symbol: string;
+}
+
 export interface RunHistoryEntry {
   accountNumber: string;
   closeOrders: RunCloseOrder[];
@@ -73,6 +86,9 @@ export interface RunHistoryEntry {
     allocationSkippedCount: number;
     cancelledOrderCount: number;
     closeOrderCount: number;
+    seedEstimatedTotal?: number;
+    seedPlacedCount?: number;
+    seedSkippedCount?: number;
   };
   id: string;
   groups: RunGroupReturn[];
@@ -91,6 +107,7 @@ export interface RunHistoryEntry {
     totalContracts: number;
     totalEstimatedCost: number;
   };
+  seedOrders?: RunSeedOrder[];
   strategyDecisions: RunStrategyDecision[];
   snapshot: {
     dynamicTakeProfitTarget: number;
@@ -116,6 +133,7 @@ interface AppendRunHistoryInput {
   executionSummary: RunHistoryEntry["executionSummary"];
   groups: RunHistoryEntry["groups"];
   plan: RunHistoryEntry["plan"];
+  seedOrders?: RunHistoryEntry["seedOrders"];
   strategyDecisions: RunHistoryEntry["strategyDecisions"];
   snapshot: RunHistoryEntry["snapshot"];
 }

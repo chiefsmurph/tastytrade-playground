@@ -1,6 +1,7 @@
 import tastytradeApi from "~/core/tastytrade-client";
 import {
   getDefaultAccountNumber,
+  getMarginAccountNumber,
   getManagedAccountNumbers,
   isReadOnlyAccount,
 } from "~/core/default-account";
@@ -30,6 +31,7 @@ import {
   RunHistoryEntry,
   RunPlanSelectedGroup,
   RunPlanRow,
+  RunSeedOrder,
   RunStrategyDecision,
 } from "./run-history";
 import {
@@ -52,6 +54,15 @@ import {
   startSecretSocketConnection,
 } from "./secret";
 import { buildGroupExecutionTargets } from "./group-execution-targets";
+import {
+  CASH_ACCOUNT_SEED_FROM_MARGIN_ORDER_SOURCE,
+} from "./order-sources";
+import seedSymbol, { SeedSymbolResult } from "./seed-symbol";
+import {
+  getAskReturnPercForEvaluation,
+  getCashAccountSeedCandidatesFromMarginEvaluations,
+  isWithinCashAccountSeedFromMarginWindow,
+} from "./cash-account-seeding";
 
 export interface RunCyclePreview {
   accountNumber: string;
@@ -118,6 +129,8 @@ type RunCycleContext = {
   };
   strategyDecisions: RunStrategyDecision[];
 };
+
+type CashAccountSeedResult = RunSeedOrder;
 
 function formatCurrency(value: number): string {
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
@@ -523,6 +536,74 @@ function mapCloseOrdersForRunHistory(
       underlyingSymbol: result.underlyingSymbol,
     };
   });
+}
+
+function mapCashAccountSeedOrderForRunHistory(
+  sourceAccountNumber: string,
+  askReturnPctSource: number,
+  result: SeedSymbolResult,
+): CashAccountSeedResult {
+  return {
+    accountNumber: result.accountNumber,
+    askReturnPctSource,
+    candidateSymbol: result.candidateSymbol ?? null,
+    estimatedOrderCost: result.estimatedOrderCost ?? null,
+    limitPrice: result.limitPrice ?? null,
+    placedOrder: result.placedOrder,
+    side: result.side,
+    skippedReason: result.skippedReason ?? null,
+    sourceAccountNumber,
+    symbol: result.symbol,
+  };
+}
+
+async function maybeSeedCashAccountFromMarginAccount(
+  accountNumber: string,
+  currentTime: Date,
+): Promise<CashAccountSeedResult[]> {
+  if (isReadOnlyAccount(accountNumber)) {
+    return [];
+  }
+
+  const accountMarginOrCash = await getAccountMarginOrCash(accountNumber);
+  if (accountMarginOrCash !== "cash") {
+    return [];
+  }
+
+  if (!isWithinCashAccountSeedFromMarginWindow(currentTime)) {
+    return [];
+  }
+
+  const marginAccountNumber = await getMarginAccountNumber();
+  if (marginAccountNumber === accountNumber) {
+    return [];
+  }
+
+  const marginEvaluations = await getPositionEvaluations(marginAccountNumber);
+  const seedCandidates = getCashAccountSeedCandidatesFromMarginEvaluations(
+    marginEvaluations,
+  );
+
+  const seedResults: CashAccountSeedResult[] = [];
+  for (const candidate of seedCandidates) {
+    const result = await seedSymbol(
+      candidate.underlyingSymbol,
+      candidate.side,
+      accountNumber,
+      {
+        orderSource: CASH_ACCOUNT_SEED_FROM_MARGIN_ORDER_SOURCE,
+      },
+    );
+    seedResults.push(
+      mapCashAccountSeedOrderForRunHistory(
+        marginAccountNumber,
+        candidate.askReturnPerc,
+        result,
+      ),
+    );
+  }
+
+  return seedResults;
 }
 
 async function buildRunCycleContext(
@@ -931,6 +1012,10 @@ export default async function runBotCycle(
     context.completedEvaluations,
     context.runExecutionTargets,
   );
+  const cashAccountSeedResults = await maybeSeedCashAccountFromMarginAccount(
+    context.preview.accountNumber,
+    new Date(),
+  );
 
   const executionSummary = {
     allocationEstimatedTotal: executionResults.allocationOrders.reduce(
@@ -947,6 +1032,16 @@ export default async function runBotCycle(
       (order) => order.cancelled,
     ).length,
     closeOrderCount: executionResults.closeOrders.length,
+    seedEstimatedTotal: cashAccountSeedResults.reduce(
+      (sum, order) => sum + (order.estimatedOrderCost ?? 0),
+      0,
+    ),
+    seedPlacedCount: cashAccountSeedResults.filter(
+      (order) => order.placedOrder,
+    ).length,
+    seedSkippedCount: cashAccountSeedResults.filter(
+      (order) => !order.placedOrder,
+    ).length,
   };
 
   const runHistoryEntry = await appendRunHistory({
@@ -955,6 +1050,7 @@ export default async function runBotCycle(
     executionSummary,
     groups: context.preview.groups,
     plan: context.preview.plan,
+    seedOrders: cashAccountSeedResults,
     strategyDecisions: context.strategyDecisions,
     snapshot: context.preview.snapshot,
   });

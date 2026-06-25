@@ -33,7 +33,10 @@ import {
   isEvaluationDoNotTouch,
   isOrderDoNotTouch,
 } from "./do-not-touch-groups";
-import { isSecretAutoSeedOrderSource } from "./order-sources";
+import {
+  isCashAccountSeedFromMarginOrderSource,
+  isSecretAutoSeedOrderSource,
+} from "./order-sources";
 
 export interface CancelOrderResult {
   cancelled: boolean;
@@ -91,6 +94,15 @@ export async function cancelAllLiveOrders(
         cancelled: false,
         orderId,
         skippedReason: "protected secret auto-seed order",
+      });
+      continue;
+    }
+
+    if (isCashAccountSeedFromMarginOrderSource(order.source)) {
+      results.push({
+        cancelled: false,
+        orderId,
+        skippedReason: "protected cross-account seed order",
       });
       continue;
     }

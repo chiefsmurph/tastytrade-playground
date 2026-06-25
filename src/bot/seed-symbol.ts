@@ -111,9 +111,10 @@ export async function seedSymbol(
   options: SeedSymbolOptions = {},
 ): Promise<SeedSymbolResult> {
   const requestedAccountNumber = accountNumber?.trim();
-  const resolvedAccountNumber = shouldSeedOnlyToMarginAccounts()
-    ? await getMarginAccountNumber()
-    : requestedAccountNumber ?? (await getDefaultAccountNumber());
+  const resolvedAccountNumber = requestedAccountNumber
+    ?? (shouldSeedOnlyToMarginAccounts()
+      ? await getMarginAccountNumber()
+      : await getDefaultAccountNumber());
   const normalizedSymbol = symbol.toUpperCase();
   const priceMode = options.priceMode === "mid" ? "mid" : "ask";
   const orderSource = options.orderSource?.trim() || BOT_ORDER_SOURCE;
