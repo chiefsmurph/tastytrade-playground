@@ -252,6 +252,40 @@ function getSpreadStats(bid: number, ask: number) {
   };
 }
 
+type SideAwareCandidateShape = {
+  "call-streamer-symbol"?: string;
+  call?: string;
+  "put-streamer-symbol"?: string;
+  put?: string;
+  streamerSymbol?: string;
+  symbol?: string;
+};
+
+function normalizeCandidateForRequestedSide<T extends SideAwareCandidateShape>(
+  candidate: T,
+  side: "call" | "put",
+): T {
+  const resolvedSymbol =
+    candidate.symbol ?? (side === "call" ? candidate.call : candidate.put);
+  const resolvedStreamerSymbol =
+    candidate.streamerSymbol ??
+    (side === "call"
+      ? candidate["call-streamer-symbol"]
+      : candidate["put-streamer-symbol"]);
+
+  return {
+    ...candidate,
+    symbol: resolvedSymbol,
+    streamerSymbol: resolvedStreamerSymbol,
+    call: side === "call" ? resolvedSymbol : undefined,
+    put: side === "put" ? resolvedSymbol : undefined,
+    "call-streamer-symbol":
+      side === "call" ? resolvedStreamerSymbol : undefined,
+    "put-streamer-symbol":
+      side === "put" ? resolvedStreamerSymbol : undefined,
+  } as T;
+}
+
 async function buildTopOptionCandidateResult(
   symbol: string,
   side: "call" | "put",
@@ -292,7 +326,9 @@ async function buildTopOptionCandidateResult(
   let fallbackWideSpreadCandidate: TopOptionCandidateForSymbolResult | undefined;
 
   for (const candidate of sortedCandidates) {
-    const quoteSymbol = candidate.streamerSymbol ?? candidate.symbol;
+    const normalizedCandidate = normalizeCandidateForRequestedSide(candidate, side);
+    const quoteSymbol =
+      normalizedCandidate.streamerSymbol ?? normalizedCandidate.symbol;
     if (!quoteSymbol) {
       continue;
     }
@@ -305,7 +341,7 @@ async function buildTopOptionCandidateResult(
     const meetsSpreadRequirement = spreadStats.spreadPct <= maxAllowedSpreadPct;
 
     const candidateResult: TopOptionCandidateForSymbolResult = {
-      ...candidate,
+      ...normalizedCandidate,
       ...spreadStats,
       maxAllowedSpreadPct,
       meetsSpreadRequirement,
@@ -351,7 +387,7 @@ async function buildTopOptionCandidateResult(
   }
 
   return {
-    ...topCandidate,
+    ...normalizeCandidateForRequestedSide(topCandidate, side),
     maxAllowedSpreadPct,
     maxDTE: resolvedSelectionOptions?.maxDTE,
     meetsSpreadRequirement: false,

@@ -82,13 +82,13 @@ export async function purchaseSymbol(
 
   const candidate = await getTopOptionCandidateForSymbol(normalizedSymbol, side);
   const candidateSymbol =
-    side === "put"
-      ? candidate?.put ?? candidate?.symbol
-      : candidate?.call ?? candidate?.symbol;
+    candidate?.symbol ?? (side === "put" ? candidate?.put : candidate?.call);
   const quoteSymbol =
-    side === "put"
-      ? candidate?.["put-streamer-symbol"] ?? candidateSymbol
-      : candidate?.["call-streamer-symbol"] ?? candidate?.streamerSymbol ?? candidateSymbol;
+    candidate?.streamerSymbol ??
+    (side === "put"
+      ? candidate?.["put-streamer-symbol"]
+      : candidate?.["call-streamer-symbol"]) ??
+    candidateSymbol;
 
   if (!candidateSymbol || !quoteSymbol) {
     return {

@@ -176,15 +176,13 @@ export async function seedSymbol(
   const usedDteFallback = candidate?.usedDteFallback;
 
   const candidateSymbol =
-    side === "put"
-      ? candidate?.put
-      : candidate?.call ?? candidate?.symbol;
+    candidate?.symbol ?? (side === "put" ? candidate?.put : candidate?.call);
   const quoteSymbol =
-    side === "put"
-      ? candidate?.["put-streamer-symbol"] ?? candidateSymbol
-      : candidate?.["call-streamer-symbol"] ??
-        candidate?.streamerSymbol ??
-        candidateSymbol;
+    candidate?.streamerSymbol ??
+    (side === "put"
+      ? candidate?.["put-streamer-symbol"]
+      : candidate?.["call-streamer-symbol"]) ??
+    candidateSymbol;
 
   if (!candidateSymbol) {
     return {
