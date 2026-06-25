@@ -1,5 +1,10 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { getDefaultAccountNumber, getMarginAccountNumber } from "~/core/default-account";
+import {
+  getAccountMarginOrCash,
+  getDefaultAccountNumber,
+  getCashAccountNumber,
+  getMarginAccountNumber,
+} from "~/core/default-account";
 import { CurrentPosition } from "~/core/types";
 import { getUnderlyingSymbolForPosition } from "./evaluate-position";
 import { getTopOptionCandidateForSymbol } from "./get-option-candidates-for-symbol";
@@ -64,6 +69,10 @@ function shouldSeedOnlyToMarginAccounts(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+function isSecretAutoSeedOrderSource(source: string): boolean {
+  return source === SECRET_AUTO_SEED_ORDER_SOURCE;
+}
+
 function extractDryRunSkipReason(error: unknown): string {
   if (!(error instanceof Error)) {
     return "seed order dry run failed";
@@ -104,6 +113,49 @@ async function hasOpenUnderlyingPosition(
   });
 }
 
+async function resolveSeedAccountNumber(options: {
+  accountNumber?: string;
+  orderSource: string;
+  symbol: string;
+}): Promise<{ accountNumber: string; fallbackToCash: boolean }> {
+  const requestedAccountNumber = options.accountNumber?.trim();
+
+  if (requestedAccountNumber) {
+    return {
+      accountNumber: requestedAccountNumber,
+      fallbackToCash: false,
+    };
+  }
+
+  if (isSecretAutoSeedOrderSource(options.orderSource)) {
+    return {
+      accountNumber: await getMarginAccountNumber(),
+      fallbackToCash: false,
+    };
+  }
+
+  const marginAccountNumber = await getMarginAccountNumber();
+  if (!(await hasOpenUnderlyingPosition(marginAccountNumber, options.symbol))) {
+    return {
+      accountNumber: marginAccountNumber,
+      fallbackToCash: false,
+    };
+  }
+
+  const cashAccountNumber = await getCashAccountNumber();
+  if (cashAccountNumber === marginAccountNumber) {
+    return {
+      accountNumber: marginAccountNumber,
+      fallbackToCash: false,
+    };
+  }
+
+  return {
+    accountNumber: cashAccountNumber,
+    fallbackToCash: true,
+  };
+}
+
 export async function seedSymbol(
   symbol: string,
   side: "call" | "put" = "call",
@@ -111,13 +163,22 @@ export async function seedSymbol(
   options: SeedSymbolOptions = {},
 ): Promise<SeedSymbolResult> {
   const requestedAccountNumber = accountNumber?.trim();
-  const resolvedAccountNumber = requestedAccountNumber
-    ?? (shouldSeedOnlyToMarginAccounts()
-      ? await getMarginAccountNumber()
-      : await getDefaultAccountNumber());
   const normalizedSymbol = symbol.toUpperCase();
   const priceMode = options.priceMode === "mid" ? "mid" : "ask";
   const orderSource = options.orderSource?.trim() || BOT_ORDER_SOURCE;
+  const resolvedSeedAccount = requestedAccountNumber
+    ? { accountNumber: requestedAccountNumber, fallbackToCash: false }
+    : shouldSeedOnlyToMarginAccounts()
+      ? {
+          accountNumber: await getMarginAccountNumber(),
+          fallbackToCash: false,
+        }
+      : await resolveSeedAccountNumber({
+          accountNumber: requestedAccountNumber,
+          orderSource,
+          symbol: normalizedSymbol,
+        });
+  const resolvedAccountNumber = resolvedSeedAccount.accountNumber;
 
   if (await hasOpenUnderlyingPosition(resolvedAccountNumber, normalizedSymbol)) {
     return {
@@ -140,6 +201,8 @@ export async function seedSymbol(
         side,
         requestedAccountNumber: requestedAccountNumber ?? null,
         resolvedAccountNumber,
+        resolvedAccountType: await getAccountMarginOrCash(resolvedAccountNumber),
+        resolvedFromCashFallback: resolvedSeedAccount.fallbackToCash,
         strategy,
         candidateDTE: candidate?.dte,
         minDTE: candidate?.minDTE,

@@ -82,6 +82,22 @@ export async function getMarginAccountNumber(): Promise<string> {
   return accountNumber;
 }
 
+export async function getCashAccountNumber(): Promise<string> {
+  const accounts = await getCustomerAccounts();
+  const cashAccount = accounts.find(
+    (item: TastytradeCustomerAccountResource) =>
+      normalizeMarginOrCash(item.account?.["margin-or-cash"]) === "cash" &&
+      item.account?.["is-closed"] !== true,
+  );
+
+  const accountNumber = cashAccount?.account?.["account-number"];
+  if (!accountNumber) {
+    throw new Error("No cash account available");
+  }
+
+  return accountNumber;
+}
+
 export async function getAccountMarginOrCash(
   accountNumber: string,
 ): Promise<"margin" | "cash" | "unknown"> {
