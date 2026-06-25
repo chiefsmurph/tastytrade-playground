@@ -327,14 +327,14 @@ async function buildTopOptionCandidateResult(
 
   for (const candidate of sortedCandidates) {
     const normalizedCandidate = normalizeCandidateForRequestedSide(candidate, side);
-    const quoteSymbol =
+    const quoteLookupSymbol =
       normalizedCandidate.streamerSymbol ?? normalizedCandidate.symbol;
-    if (!quoteSymbol) {
+    if (!quoteLookupSymbol) {
       continue;
     }
 
     const bidAsk = await tastytradeApi.johnsService.getBidAskForSymbol(
-      quoteSymbol,
+      quoteLookupSymbol,
       2000,
     );
     const spreadStats = getSpreadStats(bidAsk?.bid ?? 0, bidAsk?.ask ?? 0);
@@ -345,7 +345,10 @@ async function buildTopOptionCandidateResult(
       ...spreadStats,
       maxAllowedSpreadPct,
       meetsSpreadRequirement,
-      quoteSymbol,
+      quoteSymbol:
+        normalizedCandidate.streamerSymbol === quoteLookupSymbol
+          ? undefined
+          : quoteLookupSymbol,
       requestedSide: side,
       strategy: defaultSelection?.strategy?.action,
       usedDteFallback,
