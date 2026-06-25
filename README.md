@@ -24,14 +24,27 @@ Required `.env` values (from `.env.example`):
 - `BASE_URL` (default: `https://api.tastyworks.com`)
 - `API_CLIENT_SECRET`
 - `API_REFRESH_TOKEN`
-- `BOT_RUN_ON_SCHEDULE` (`true` or `false`)
 
 Optional runtime env values:
 
-- `TASTYTRADE_BOT_SOCKET` (override IPC socket path)
+- `BOT_RUN_ON_SCHEDULE` (`true` or `false`, default `false`)
+- `BOT_SEED_ONLY_TO_MARGIN_ACCOUNTS` (`true` or `false`, default `false`)
+- `BOT_DO_NOT_TOUCH_GROUPS` (comma-separated group keys to protect from trading)
+- `BOT_READ_ONLY_ACCOUNTS` (comma-separated account numbers treated as read-only)
+- `BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_MAX_ASK_RETURN_PCT` (max ask return percent for the new margin-driven cash seeding path)
+- `BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_TIME` (time cutoff for the new margin-driven cash seeding path; default `11:30`)
 - `BOT_RUN_INTERVAL_MS` (scheduler run interval in milliseconds while market is open)
 - `BOT_RUN_INTERVAL_MINUTES` (scheduler run interval in minutes; used when `BOT_RUN_INTERVAL_MS` is unset)
 - `BOT_OPTION_MARKET_SNAPSHOT_TTL_MS` (cache TTL for option chain + underlying snapshots used by candidate/health lookups; default `30000`, set `0` to disable cache)
+- `SECRET_SOCKET_URL` (socket URL for the secret feed)
+- `SECRET_SOCKET_TIMEOUT_MS` (secret socket timeout in milliseconds; default `5000`)
+- `SECRET_DATA_UPDATE_POSITIONS_KEY` (positions source key inside secret payloads)
+- `SECRET_AUTO_SEED_ON_POSITIONS_UPDATE` (`true` or `false`, default `false`)
+- `SECRET_AUTO_SEED_ON_TICKER_RECS_UPDATE` (`true` or `false`, default `false`)
+- `SECRET_AUTO_SEED_START_TIME` (auto-seed window start time in `HH:mm`, default `06:30`)
+- `SECRET_AUTO_SEED_END_TIME` (auto-seed window end time in `HH:mm`, default `12:15`)
+- `SECRET_AUTO_SEED_COOLDOWN_MS` (minimum delay between secret auto-seeds for the same symbol; default `600000`)
+- `TASTYTRADE_BOT_SOCKET` (override IPC socket path)
 
 3. Type-check the project:
 
