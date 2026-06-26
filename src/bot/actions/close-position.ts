@@ -4,6 +4,10 @@ import { PositionGroupEvaluation } from "../evaluate-position";
 import { ExecutionTargets, getDynamicTakeProfitTarget } from "../evaluate-trading-strategy";
 import { buildClosingOrderPayload } from "./order-utils";
 
+const CLOSE_TICK_CHASE_ENABLED = true;
+const CLOSE_TICK_INTERVAL_MS = 30_000;
+const MAX_CLOSE_TICK_MOVES = 10;
+
 export interface ClosePositionResult {
   accountNumber: string;
   action: "CLOSE_POSITION";
@@ -16,6 +20,131 @@ export interface ClosePositionResult {
 
 export interface ClosePositionDependencies {
   createOrder?: typeof tastytradeApi.orderService.createOrder;
+  cancelOrder?: typeof tastytradeApi.orderService.cancelOrder;
+  checkOrderFilled?: (
+    accountNumber: string,
+    orderId: string,
+    timeoutMs: number,
+  ) => Promise<boolean>;
+  tickChaseEnabled?: boolean;
+  tickIntervalMs?: number;
+  maxTickMoves?: number;
+}
+
+function getMidpointPrice(bid: number, ask: number): number {
+  if (bid > 0 && ask > 0) {
+    return (bid + ask) / 2;
+  }
+
+  return ask || bid;
+}
+
+function getMinTickSize(referencePrice: number): number {
+  return referencePrice < 3 ? 0.05 : 0.1;
+}
+
+function getEdgePrice(
+  action: string,
+  bid: number,
+  ask: number,
+  midpoint: number,
+): number {
+  if (action.startsWith("Buy")) {
+    return ask > 0 ? ask : midpoint;
+  }
+
+  return bid > 0 ? bid : midpoint;
+}
+
+function getCloseTickSize(
+  action: string,
+  midpoint: number,
+  edgePrice: number,
+  maxTickMoves: number,
+): number {
+  const safeMoveCount = Math.max(1, maxTickMoves);
+  const minTickSize = getMinTickSize(midpoint);
+
+  if (action.startsWith("Buy")) {
+    if (edgePrice <= midpoint || !Number.isFinite(edgePrice)) {
+      return minTickSize;
+    }
+
+    return Math.max((edgePrice - midpoint) / safeMoveCount, minTickSize);
+  }
+
+  if (edgePrice >= midpoint || !Number.isFinite(edgePrice)) {
+    return minTickSize;
+  }
+
+  return Math.max((midpoint - edgePrice) / safeMoveCount, minTickSize);
+}
+
+function moveClosePriceTowardEdge(
+  action: string,
+  currentPrice: number,
+  edgePrice: number,
+  tickSize: number,
+): number {
+  if (action.startsWith("Buy")) {
+    return Math.min(edgePrice, currentPrice + tickSize);
+  }
+
+  return Math.max(edgePrice, currentPrice - tickSize);
+}
+
+function pricesAreEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) < 1e-9;
+}
+
+async function waitForOrderFill(
+  accountNumber: string,
+  orderId: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const orders = await tastytradeApi.orderService.getOrders(accountNumber);
+      const order = orders.find((currentOrder) => currentOrder.id === orderId);
+
+      if (!order) {
+        return true;
+      }
+
+      if (order.status === "Filled" || order.status === "Partially Filled") {
+        return true;
+      }
+
+      if (!order.status || !["Pending", "Open", "Pending Cancel"].includes(order.status)) {
+        return false;
+      }
+    } catch {
+      // If we fail to inspect status, keep waiting until timeout.
+    }
+
+    await new Promise((res) => setTimeout(res, 1000));
+  }
+
+  return false;
+}
+
+async function cancelOrderById(
+  accountNumber: string,
+  orderId: string,
+  cancelOrder: typeof tastytradeApi.orderService.cancelOrder,
+): Promise<void> {
+  const numericOrderId = Number(orderId);
+  if (!Number.isFinite(numericOrderId)) {
+    return;
+  }
+
+  try {
+    await cancelOrder(accountNumber, numericOrderId);
+  } catch {
+    // Best effort cancellation before placing next chase attempt.
+  }
 }
 
 const MORNING_CLOSE_SPREAD_THRESHOLDS = [
@@ -97,6 +226,18 @@ export async function closePosition(
   const createOrder =
     dependencies.createOrder ??
     tastytradeApi.orderService.createOrder.bind(tastytradeApi.orderService);
+  const cancelOrder =
+    dependencies.cancelOrder ??
+    tastytradeApi.orderService.cancelOrder.bind(tastytradeApi.orderService);
+  const checkOrderFilled = dependencies.checkOrderFilled ?? waitForOrderFill;
+  const tickChaseEnabled =
+    dependencies.tickChaseEnabled ?? CLOSE_TICK_CHASE_ENABLED;
+  const tickIntervalMs =
+    dependencies.tickIntervalMs ?? CLOSE_TICK_INTERVAL_MS;
+  const maxTickMoves = Math.max(
+    0,
+    dependencies.maxTickMoves ?? MAX_CLOSE_TICK_MOVES,
+  );
 
   const morningSpreadGate = shouldSkipClosePositionForMorningSpread(evaluation);
   if (morningSpreadGate.shouldSkip) {
@@ -111,8 +252,8 @@ export async function closePosition(
   }
 
   for (const snapshot of evaluation.positionSnapshots) {
-    const order = buildClosingOrderPayload(snapshot, targets);
-    if (!order) {
+    const baseOrder = buildClosingOrderPayload(snapshot, targets);
+    if (!baseOrder) {
       results.push({
         accountNumber,
         action: "CLOSE_POSITION",
@@ -124,12 +265,84 @@ export async function closePosition(
       continue;
     }
 
-    const orderResponse = await createOrder(accountNumber, order);
+    const orderAction = baseOrder.legs[0]?.action ?? "";
+    const midpointPrice = getMidpointPrice(
+      snapshot.currentBidPrice,
+      snapshot.currentAskPrice,
+    );
+
+    if (!(midpointPrice > 0)) {
+      results.push({
+        accountNumber,
+        action: "CLOSE_POSITION",
+        placedOrder: false,
+        skippedReason: "missing midpoint price",
+        symbol: snapshot.position.symbol,
+        underlyingSymbol: evaluation.underlyingSymbol,
+      });
+      continue;
+    }
+
+    const edgePrice = getEdgePrice(
+      orderAction,
+      snapshot.currentBidPrice,
+      snapshot.currentAskPrice,
+      midpointPrice,
+    );
+    const tickSize = getCloseTickSize(
+      orderAction,
+      midpointPrice,
+      edgePrice,
+      maxTickMoves,
+    );
+
+    let currentPrice = midpointPrice;
+    let tickMoveCount = 0;
+    let activeOrderId: string | undefined;
+    let lastOrderResponse: TastytradePlacedOrderResponse | undefined;
+
+    while (tickMoveCount <= maxTickMoves) {
+      if (activeOrderId && tickChaseEnabled && tickMoveCount > 0) {
+        await cancelOrderById(accountNumber, activeOrderId, cancelOrder);
+      }
+
+      const order = {
+        ...baseOrder,
+        price: (Math.round(currentPrice * 100) / 100).toFixed(2),
+      };
+      const orderResponse = await createOrder(accountNumber, order);
+      lastOrderResponse = orderResponse;
+      activeOrderId = orderResponse?.order?.id;
+
+      if (!tickChaseEnabled || tickMoveCount >= maxTickMoves) {
+        break;
+      }
+
+      if (pricesAreEqual(currentPrice, edgePrice)) {
+        break;
+      }
+
+      const isFilled = activeOrderId
+        ? await checkOrderFilled(accountNumber, activeOrderId, tickIntervalMs)
+        : false;
+
+      if (isFilled) {
+        break;
+      }
+
+      currentPrice = moveClosePriceTowardEdge(
+        orderAction,
+        currentPrice,
+        edgePrice,
+        tickSize,
+      );
+      tickMoveCount += 1;
+    }
 
     results.push({
       accountNumber,
       action: "CLOSE_POSITION",
-      orderResponse,
+      orderResponse: lastOrderResponse,
       placedOrder: true,
       symbol: snapshot.position.symbol,
       underlyingSymbol: evaluation.underlyingSymbol,

@@ -133,3 +133,56 @@ test("closePosition skips all order placement when the morning gate is active", 
   assert.equal(results[0]?.placedOrder, false);
   assert.match(results[0]?.skippedReason ?? "", /Morning spread gate active/);
 });
+
+test("closePosition chases sell-to-close from midpoint down to bid", async () => {
+  const evaluation = buildEvaluation("2026-06-25T09:30:00", {
+    metrics: {
+      currentAskPrice: 1.2,
+      currentBidPrice: 1,
+      currentTime: new Date("2026-06-25T09:30:00"),
+      lastActionTime: new Date("2026-06-25T05:30:00"),
+      weightedAverageFill: 1,
+    },
+    positionSnapshots: [
+      {
+        currentAskPrice: 1.2,
+        currentBidPrice: 1,
+        lastActionTime: new Date("2026-06-25T05:30:00"),
+        position: {
+          "account-number": "ACC-1",
+          "instrument-type": "Option",
+          quantity: 1,
+          symbol: "AAPL   260619C00100000",
+        },
+        quantityWeight: 1,
+        weightedAverageFill: 1,
+      },
+    ],
+  });
+
+  const submittedPrices: string[] = [];
+  const cancelledOrderIds: number[] = [];
+
+  const results = await closePosition("ACC-1", evaluation, closingTargets, {
+    createOrder: async (_accountNumber, order) => {
+      submittedPrices.push(String((order as { price?: string }).price ?? ""));
+      return {
+        order: {
+          id: String(submittedPrices.length),
+        },
+      } as never;
+    },
+    cancelOrder: async (_accountNumber, orderId) => {
+      cancelledOrderIds.push(orderId);
+      return {} as never;
+    },
+    checkOrderFilled: async () => false,
+    tickIntervalMs: 1,
+    maxTickMoves: 2,
+  });
+
+  assert.deepEqual(submittedPrices, ["1.10", "1.05", "1.00"]);
+  assert.deepEqual(cancelledOrderIds, ["1", "2"].map(Number));
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.placedOrder, true);
+});
