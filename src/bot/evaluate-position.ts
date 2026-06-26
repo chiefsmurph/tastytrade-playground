@@ -6,6 +6,7 @@ import {
   ExecutionTargets,
   ExecutionStrategy,
   PositionMetrics,
+  StrategyAccountType,
 } from "./evaluate-trading-strategy";
 
 export interface PositionQuoteSnapshot {
@@ -176,6 +177,7 @@ function buildAggregateMetrics(
 export async function evaluatePositionGroup(
   positions: CurrentPosition[],
   currentTime = new Date(),
+  accountType: StrategyAccountType = "unknown",
 ): Promise<PositionGroupEvaluation | null> {
   if (positions.length === 0) {
     return null;
@@ -185,7 +187,7 @@ export async function evaluatePositionGroup(
     positions.map((position) => createPositionQuoteSnapshot(position)),
   );
   const metrics = buildAggregateMetrics(positionSnapshots, currentTime);
-  const strategy = buildExecutionStrategy(metrics);
+  const strategy = buildExecutionStrategy(metrics, accountType);
   const currentReturn =
     metrics.weightedAverageFill > 0
       ? (metrics.currentBidPrice - metrics.weightedAverageFill) /

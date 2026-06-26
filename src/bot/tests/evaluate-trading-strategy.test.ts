@@ -3,9 +3,25 @@ import assert from "node:assert/strict";
 
 import {
   applyPositionSizeWeightCaps,
+  evaluateTradingStrategy,
   getTimeOfDayExecutionTargets,
   getTimeOfDayExecutionTargetsForPstTime,
 } from "../evaluate-trading-strategy";
+
+function buildMetricsAtTime(hours: number, minutes: number) {
+  const currentTime = new Date();
+  currentTime.setHours(hours, minutes, 0, 0);
+
+  const lastActionTime = new Date(currentTime.getTime() - 11 * 60 * 1000);
+
+  return {
+    currentBidPrice: 1,
+    currentAskPrice: 1,
+    currentTime,
+    lastActionTime,
+    weightedAverageFill: 1,
+  };
+}
 
 test("getTimeOfDayExecutionTargetsForPstTime rejects invalid HH:mm format", () => {
   assert.throws(
@@ -100,4 +116,18 @@ test("applyPositionSizeWeightCaps allows full ask at 50%+ position size", () => 
 
   assert.equal(adjusted.askWeight, 0.9);
   assert.equal(adjusted.midWeight, 0.2);
+});
+
+test("evaluateTradingStrategy liquidates margin accounts in last 5 minutes", () => {
+  const strategy = evaluateTradingStrategy(buildMetricsAtTime(12, 55), "margin");
+
+  assert.equal(strategy.action, "CLOSE_POSITION");
+  assert.match(strategy.reason, /liquidate all positions immediately/);
+});
+
+test("evaluateTradingStrategy does not liquidate cash accounts in last 5 minutes", () => {
+  const strategy = evaluateTradingStrategy(buildMetricsAtTime(12, 55), "cash");
+
+  assert.equal(strategy.action, "MANAGE_ALLOCATION");
+  assert.match(strategy.reason, /No circuit breakers triggered/);
 });

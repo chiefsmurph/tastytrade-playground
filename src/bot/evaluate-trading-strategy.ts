@@ -52,6 +52,8 @@ export interface PositionMetrics {
   lastActionTime: Date;          // When this recommendation first flashed
 }
 
+export type StrategyAccountType = "margin" | "cash" | "unknown";
+
 interface TimeSchedulePoint {
   minute: number;
   value: number;
@@ -95,7 +97,10 @@ function getTimeInMinutes(currentTime: Date): number {
  * Tracks the state targets of the portfolio. If the action is MANAGE_ALLOCATION,
  * the broker pipeline should inspect exposure and execute buy orders accordingly.
  */
-export function evaluateTradingStrategy(metrics: PositionMetrics): ExecutionStrategy {
+export function evaluateTradingStrategy(
+  metrics: PositionMetrics,
+  accountType: StrategyAccountType = "unknown",
+): ExecutionStrategy {
   const { currentBidPrice, weightedAverageFill, currentTime, lastActionTime } = metrics;
 
   // 1. SYSTEM CLOCK CONVERSIONS (Pacific Standard Time - Minutes from midnight)
@@ -108,7 +113,7 @@ export function evaluateTradingStrategy(metrics: PositionMetrics): ExecutionStra
 
   // 2. HARD CIRCUIT BREAKERS (EOD Liquidation & Risk Floors)
 
-  if (timeInMinutes >= TWELVE_FIFTY_FIVE_PM) {
+  if (timeInMinutes >= TWELVE_FIFTY_FIVE_PM && accountType === "margin") {
     return {
       action: "CLOSE_POSITION",
       reason: "Market closed or closing - liquidate all positions immediately"
@@ -350,8 +355,11 @@ export function averageExecutionTargets(
   };
 }
 
-export function buildExecutionStrategy(metrics: PositionMetrics): ExecutionStrategy {
-  return evaluateTradingStrategy(metrics);
+export function buildExecutionStrategy(
+  metrics: PositionMetrics,
+  accountType: StrategyAccountType = "unknown",
+): ExecutionStrategy {
+  return evaluateTradingStrategy(metrics, accountType);
 }
 
 function roundToTwoDecimals(value: number): number {
