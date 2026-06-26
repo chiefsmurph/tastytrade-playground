@@ -59,7 +59,7 @@ export interface TopOptionCandidateForSymbolResult {
   "put-streamer-symbol"?: string;
   put?: string;
   quoteSymbol?: string;
-  requestedSide: "call" | "put";
+  requestedSide?: "call" | "put";
   skippedReason?: string;
   spread?: number;
   spreadPct?: number;
@@ -286,6 +286,24 @@ function normalizeCandidateForRequestedSide<T extends SideAwareCandidateShape>(
   } as T;
 }
 
+function sanitizeTopCandidateResponse(
+  candidate: TopOptionCandidateForSymbolResult,
+): TopOptionCandidateForSymbolResult {
+  const {
+    requestedSide: _requestedSide,
+    call: _call,
+    put: _put,
+    "call-streamer-symbol": _callStreamerSymbol,
+    "put-streamer-symbol": _putStreamerSymbol,
+    "strike-price": _strikePrice,
+    ...sanitized
+  } = candidate as TopOptionCandidateForSymbolResult & {
+    "strike-price"?: string;
+  };
+
+  return sanitized;
+}
+
 async function buildTopOptionCandidateResult(
   symbol: string,
   side: "call" | "put",
@@ -350,14 +368,14 @@ async function buildTopOptionCandidateResult(
         normalizedCandidate.streamerSymbol === quoteLookupSymbol
           ? undefined
           : quoteLookupSymbol,
-      requestedSide: side,
       strategy: defaultSelection?.strategy?.action,
       usedDteFallback,
     };
 
     if (meetsSpreadRequirement) {
-      console.log(`Top option candidate for ${symbol}:`, candidateResult);
-      return candidateResult;
+      const sanitizedResult = sanitizeTopCandidateResponse(candidateResult);
+      console.log(`Top option candidate for ${symbol}:`, sanitizedResult);
+      return sanitizedResult;
     }
 
     if (!fallbackWideSpreadCandidate) {
@@ -366,13 +384,11 @@ async function buildTopOptionCandidateResult(
   }
 
   if (fallbackWideSpreadCandidate) {
-    return {
+    return sanitizeTopCandidateResponse({
       ...fallbackWideSpreadCandidate,
       symbol: undefined,
-      call: undefined,
-      put: undefined,
       skippedReason: "all candidate spreads exceeded BOT_MAX_OPTION_SPREAD_PCT",
-    };
+    });
   }
 
   const topCandidate = sortedCandidates[0];
@@ -383,14 +399,13 @@ async function buildTopOptionCandidateResult(
       meetsSpreadRequirement: false,
       minDTE: resolvedSelectionOptions?.minDTE,
       preferredDTE,
-      requestedSide: side,
       skippedReason: "no candidate found for target",
       strategy: defaultSelection?.strategy?.action,
       usedDteFallback,
     };
   }
 
-  return {
+  return sanitizeTopCandidateResponse({
     ...normalizeCandidateForRequestedSide(topCandidate, side),
     maxAllowedSpreadPct,
     maxDTE: resolvedSelectionOptions?.maxDTE,
@@ -398,10 +413,9 @@ async function buildTopOptionCandidateResult(
     minDTE: resolvedSelectionOptions?.minDTE,
     preferredDTE,
     skippedReason: "candidate quote symbol unavailable",
-    requestedSide: side,
     strategy: defaultSelection?.strategy?.action,
     usedDteFallback,
-  };
+  });
 }
 
 export async function getTopOptionCandidateForSymbol(
