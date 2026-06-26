@@ -20,6 +20,8 @@ import { getSecretAutoSeedTargetAccountType } from "./seeding-windows";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 const DEFAULT_MAX_SEED_ORDER_COST = 500;
+const CASH_ACCOUNT_SEED_MIN_DTE = 14;
+const CASH_ACCOUNT_SEED_MAX_DTE = 30;
 
 export interface SeedSymbolOptions {
   priceMode?: "ask" | "mid";
@@ -72,6 +74,15 @@ function shouldSeedOnlyToMarginAccounts(): boolean {
 
 function isSecretAutoSeedOrderSource(source: string): boolean {
   return source === SECRET_AUTO_SEED_ORDER_SOURCE;
+}
+
+export function isWithinCashAccountSeedDteRange(dte: number | null | undefined): boolean {
+  return (
+    typeof dte === "number" &&
+    Number.isFinite(dte) &&
+    dte >= CASH_ACCOUNT_SEED_MIN_DTE &&
+    dte <= CASH_ACCOUNT_SEED_MAX_DTE
+  );
 }
 
 function extractDryRunSkipReason(error: unknown): string {
@@ -187,6 +198,7 @@ export async function seedSymbol(
           symbol: normalizedSymbol,
         });
   const resolvedAccountNumber = resolvedSeedAccount.accountNumber;
+  const resolvedAccountType = await getAccountMarginOrCash(resolvedAccountNumber);
 
   if (await hasOpenUnderlyingPosition(resolvedAccountNumber, normalizedSymbol)) {
     return {
@@ -198,8 +210,53 @@ export async function seedSymbol(
     };
   }
 
-  const candidate = await getTopOptionCandidateForSymbol(symbol, side);
+  const candidate = await getTopOptionCandidateForSymbol(
+    symbol,
+    side,
+    undefined,
+    resolvedAccountType === "cash"
+      ? {
+          minDTE: CASH_ACCOUNT_SEED_MIN_DTE,
+          maxDTE: CASH_ACCOUNT_SEED_MAX_DTE,
+        }
+      : undefined,
+  );
   const strategy = candidate?.strategy;
+  const candidateDte = candidate?.dte != null ? Number(candidate.dte) : undefined;
+
+  if (resolvedAccountType === "cash") {
+    if (candidate?.usedDteFallback) {
+      return {
+        accountNumber: resolvedAccountNumber,
+        dte: candidateDte,
+        maxDTE: candidate?.maxDTE,
+        minDTE: candidate?.minDTE,
+        placedOrder: false,
+        preferredDTE: candidate?.preferredDTE,
+        side,
+        skippedReason: `no candidate found in cash seed DTE window ${CASH_ACCOUNT_SEED_MIN_DTE}-${CASH_ACCOUNT_SEED_MAX_DTE}`,
+        strategy,
+        symbol: normalizedSymbol,
+        usedDteFallback: candidate?.usedDteFallback,
+      };
+    }
+
+    if (!isWithinCashAccountSeedDteRange(candidateDte)) {
+      return {
+        accountNumber: resolvedAccountNumber,
+        dte: candidateDte,
+        maxDTE: candidate?.maxDTE,
+        minDTE: candidate?.minDTE,
+        placedOrder: false,
+        preferredDTE: candidate?.preferredDTE,
+        side,
+        skippedReason: `cash seed candidate DTE must be within ${CASH_ACCOUNT_SEED_MIN_DTE}-${CASH_ACCOUNT_SEED_MAX_DTE}`,
+        strategy,
+        symbol: normalizedSymbol,
+        usedDteFallback: candidate?.usedDteFallback,
+      };
+    }
+  }
 
   console.log(
     JSON.stringify(
@@ -209,10 +266,10 @@ export async function seedSymbol(
         side,
         requestedAccountNumber: requestedAccountNumber ?? null,
         resolvedAccountNumber,
-        resolvedAccountType: await getAccountMarginOrCash(resolvedAccountNumber),
+        resolvedAccountType,
         resolvedFromCashFallback: resolvedSeedAccount.fallbackToCash,
         strategy,
-        candidateDTE: candidate?.dte,
+        candidateDTE: candidateDte,
         minDTE: candidate?.minDTE,
         maxDTE: candidate?.maxDTE,
         preferredDTE: candidate?.preferredDTE,
@@ -258,7 +315,7 @@ export async function seedSymbol(
   if (!candidateSymbol) {
     return {
       accountNumber: resolvedAccountNumber,
-      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      dte: candidateDte,
       maxDTE,
       minDTE,
       placedOrder: false,
@@ -275,7 +332,7 @@ export async function seedSymbol(
     return {
       accountNumber: resolvedAccountNumber,
       candidateSymbol,
-      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      dte: candidateDte,
       maxDTE,
       minDTE,
       placedOrder: false,
@@ -308,7 +365,7 @@ export async function seedSymbol(
       askPrice,
       bidPrice,
       candidateSymbol,
-      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      dte: candidateDte,
       midPrice,
       maxDTE,
       minDTE,
@@ -357,7 +414,7 @@ export async function seedSymbol(
       bidPrice,
       buyingPowerAvailable,
       candidateSymbol,
-      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      dte: candidateDte,
       estimatedOrderCost,
       limitPrice: numericLimitPrice,
       maxDTE,
@@ -382,7 +439,7 @@ export async function seedSymbol(
       bidPrice,
       buyingPowerAvailable,
       candidateSymbol,
-      dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+      dte: candidateDte,
       estimatedOrderCost,
       limitPrice: numericLimitPrice,
       maxDTE,
@@ -447,7 +504,7 @@ export async function seedSymbol(
     bidPrice,
     buyingPowerAvailable,
     candidateSymbol,
-    dte: candidate?.dte != null ? Number(candidate.dte) : undefined,
+    dte: candidateDte,
     dryRunResponse,
     estimatedOrderCost,
     limitPrice: numericLimitPrice,
