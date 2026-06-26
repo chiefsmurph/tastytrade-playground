@@ -463,21 +463,19 @@ export async function getLastRunGroupsByTickers(
     requestedTickers.map((ticker) => [ticker, []]),
   );
 
+  // For each account (file), get the most recent entry and extract requested tickers
   for (const fileEntries of entriesByFile) {
     const { accountType, entries } = fileEntries;
 
+    // Get the most recent entry for this account
+    const mostRecentEntry = entries[0];
+    if (!mostRecentEntry) {
+      continue;
+    }
+
+    // Collect requested tickers from this account's most recent entry
     for (const ticker of requestedTickers) {
-      const matchingEntry = entries.find((entry) =>
-        entry.groups.some(
-          (group) => normalizeTicker(group.underlyingSymbol) === ticker,
-        ),
-      );
-
-      if (!matchingEntry) {
-        continue;
-      }
-
-      const groupsForTicker = matchingEntry.groups
+      const groupsForTicker = mostRecentEntry.groups
         .filter((group) => normalizeTicker(group.underlyingSymbol) === ticker)
         .map((group) => ({
           account: accountType,
