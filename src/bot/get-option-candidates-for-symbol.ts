@@ -304,6 +304,7 @@ async function buildTopOptionCandidateResult(
     optionChain,
     underlyingPrice,
     resolvedSelectionOptions,
+    side,
   ).map((candidate) => ({
     ...candidate,
     meetsVolumeRequirement: getOptionCandidateVolume(candidate, side) > 40,

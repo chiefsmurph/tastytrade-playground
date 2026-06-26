@@ -192,6 +192,23 @@ export async function fetchOptionVolumes(
       return null;
     }
 
+    function getMaxFiniteNumber(
+      ...values: any[]
+    ): number | null {
+      let maxFinite: number | null = null;
+
+      for (const value of values) {
+        const parsed = toNumberMaybe(value);
+        if (parsed != null) {
+          if (maxFinite == null || parsed > maxFinite) {
+            maxFinite = parsed;
+          }
+        }
+      }
+
+      return maxFinite;
+    }
+
     function extractVolumeFromEvent(
       ev: any,
     ): { symbol?: string; volume?: number; source?: string } | null {
@@ -200,11 +217,29 @@ export async function fetchOptionVolumes(
       const symbol =
         ev.eventSymbol || ev.symbol || ev.s || ev.t || ev.ticker || ev[1];
 
-      const vol = toNumberMaybe(
-        ev.openInterest ?? ev["open-interest"] ?? ev.oi ?? null,
+      const vol = getMaxFiniteNumber(
+        ev.volume,
+        ev.dayVolume,
+        ev["day-volume"],
+        ev.totalVolume,
+        ev["total-volume"],
+        ev.openInterest,
+        ev["open-interest"],
+        ev.oi,
       );
       if (vol != null) {
-        return { symbol, volume: vol, source: "openInterest" };
+        return {
+          symbol,
+          source:
+            ev.volume != null ||
+            ev.dayVolume != null ||
+            ev["day-volume"] != null ||
+            ev.totalVolume != null ||
+            ev["total-volume"] != null
+              ? "volume"
+              : "openInterest",
+          volume: vol,
+        };
       }
 
       return null;
@@ -276,6 +311,8 @@ export function mergeVolumesIntoChain(
   volumes: Record<string, number>,
 ) {
   if (!chain || typeof chain !== "object") return chain;
+  const hasVolumeForKey = (key: string) =>
+    Object.prototype.hasOwnProperty.call(volumes, key);
 
   function merge(obj: any) {
     if (!obj || typeof obj !== "object") return;
@@ -295,7 +332,7 @@ export function mergeVolumesIntoChain(
         if (typeof raw === "string") {
           const candidates = candidateSymbolsFor(raw);
           for (const c of candidates) {
-            if (volumes[c]) {
+            if (hasVolumeForKey(c)) {
               const short = k.includes("call")
                 ? "callVolume"
                 : k.includes("put")
