@@ -2,8 +2,9 @@ import {
   getGroupSideForPositions,
   type PositionGroupEvaluation,
 } from "./evaluate-position";
-
-const DEFAULT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_MINUTE = 11 * 60 + 30;
+import {
+  isWithinCashAccountSeedFromMarginWindow as isWithinCashAccountSeedFromMarginWindowShared,
+} from "./seeding-windows";
 
 export interface CashAccountSeedCandidate {
   askReturnPerc: number;
@@ -13,27 +14,6 @@ export interface CashAccountSeedCandidate {
 
 function toAskReturnPct(askReturnPerc: number): number {
   return Number((askReturnPerc * 100).toFixed(4));
-}
-
-function parseMinuteOfDay(value: string | undefined): number | null {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const match = trimmed.match(/^(?:[01]?\d|2[0-3]):[0-5]\d$/);
-  if (!match) {
-    return null;
-  }
-
-  const [hoursText, minutesText] = trimmed.split(":");
-  const hours = Number(hoursText);
-  const minutes = Number(minutesText);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
-    return null;
-  }
-
-  return hours * 60 + minutes;
 }
 
 export function getCashAccountSeedFromMarginMaxAskReturnPct(): number | null {
@@ -50,16 +30,8 @@ export function getCashAccountSeedFromMarginMaxAskReturnPct(): number | null {
   return parsed;
 }
 
-export function getCashAccountSeedFromMarginEndMinute(): number {
-  return (
-    parseMinuteOfDay(process.env.BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_TIME)
-    ?? DEFAULT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_MINUTE
-  );
-}
-
 export function isWithinCashAccountSeedFromMarginWindow(currentTime: Date): boolean {
-  const minuteOfDay = currentTime.getHours() * 60 + currentTime.getMinutes();
-  return minuteOfDay < getCashAccountSeedFromMarginEndMinute();
+  return isWithinCashAccountSeedFromMarginWindowShared(currentTime);
 }
 
 export function getAskReturnPercForEvaluation(

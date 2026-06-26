@@ -16,6 +16,7 @@ import {
   BOT_ORDER_SOURCE,
   SECRET_AUTO_SEED_ORDER_SOURCE,
 } from "./order-sources";
+import { getSecretAutoSeedTargetAccountType } from "./seeding-windows";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
 const DEFAULT_MAX_SEED_ORDER_COST = 500;
@@ -128,6 +129,13 @@ async function resolveSeedAccountNumber(options: {
   }
 
   if (isSecretAutoSeedOrderSource(options.orderSource)) {
+    if (getSecretAutoSeedTargetAccountType(new Date()) === "cash") {
+      return {
+        accountNumber: await getCashAccountNumber(),
+        fallbackToCash: false,
+      };
+    }
+
     return {
       accountNumber: await getMarginAccountNumber(),
       fallbackToCash: false,

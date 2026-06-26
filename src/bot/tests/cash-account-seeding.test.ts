@@ -91,24 +91,13 @@ test("getCashAccountSeedCandidatesFromMarginEvaluations filters by threshold and
   }
 });
 
-test("isWithinCashAccountSeedFromMarginWindow stops seeding at 11:30", () => {
-  const previousEnd = process.env.BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_TIME;
-  process.env.BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_TIME = "11:30";
-
-  try {
-    assert.equal(
-      isWithinCashAccountSeedFromMarginWindow(new Date("2026-06-24T11:29:00")),
-      true,
-    );
-    assert.equal(
-      isWithinCashAccountSeedFromMarginWindow(new Date("2026-06-24T11:30:00")),
-      false,
-    );
-  } finally {
-    if (previousEnd === undefined) {
-      delete process.env.BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_TIME;
-    } else {
-      process.env.BOT_CASH_ACCOUNT_SEED_FROM_MARGIN_END_TIME = previousEnd;
-    }
-  }
+test("isWithinCashAccountSeedFromMarginWindow stops seeding at 13:00", () => {
+  assert.equal(
+    isWithinCashAccountSeedFromMarginWindow(new Date("2026-06-24T12:59:00")),
+    true,
+  );
+  assert.equal(
+    isWithinCashAccountSeedFromMarginWindow(new Date("2026-06-24T13:00:00")),
+    false,
+  );
 });
