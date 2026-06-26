@@ -21,6 +21,7 @@ import {
   roundOrderPrice,
 } from "./order-utils";
 import { ExecutionTargets } from "../evaluate-trading-strategy";
+import { GLOBAL_MAX_BUY_EXPOSURE_PCT } from "../risk-limits";
 import type { TastytradePlacedOrderResponse } from "~/core/types";
 
 const DEFAULT_CONTRACT_MULTIPLIER = 100;
@@ -377,8 +378,11 @@ export async function manageAllocationForGroup(
 
   const targetExposure = budget.totalCapital * targets.targetAccountExposure;
   const exposureHeadroom = targetExposure - budget.portfolioExposure;
+  const maxBuyAmountPerAction =
+    budget.totalCapital * GLOBAL_MAX_BUY_EXPOSURE_PCT;
   const normalizedGroupsRemaining = Math.max(1, groupsRemainingForAllocation);
   const perGroupExposureHeadroom = exposureHeadroom / normalizedGroupsRemaining;
+  const perGroupMaxBuyAmount = maxBuyAmountPerAction / normalizedGroupsRemaining;
 
   if (targets.targetAccountExposure <= 0) {
     return {
@@ -481,6 +485,7 @@ export async function manageAllocationForGroup(
   const ask = bidAsk?.ask ?? bid;
   const availableCapital = Math.min(
     Math.max(0, perGroupExposureHeadroom),
+    Math.max(0, perGroupMaxBuyAmount),
     budget.buyingPowerRemaining,
   );
   const routeOrders = allocateContractsByWeight(

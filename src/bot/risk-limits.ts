@@ -1,0 +1,1 @@
+export const GLOBAL_MAX_BUY_EXPOSURE_PCT = 0.25;
