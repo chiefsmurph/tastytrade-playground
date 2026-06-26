@@ -161,6 +161,8 @@ interface AppendRunHistoryInput {
   snapshot: RunHistoryEntry["snapshot"];
 }
 
+type AccountTypeLabel = "margin" | "cash" | "unknown";
+
 function sanitizeAccountNumberForPath(accountNumber: string): string {
   const normalized = String(accountNumber ?? "").trim();
   if (!normalized) {
@@ -168,6 +170,30 @@ function sanitizeAccountNumberForPath(accountNumber: string): string {
   }
 
   return normalized.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function normalizeAccountTypeForFileName(accountType: string): AccountTypeLabel {
+  if (accountType === "margin") {
+    return "margin";
+  }
+
+  if (accountType === "cash") {
+    return "cash";
+  }
+
+  return "unknown";
+}
+
+function getAccountTypeFromHistoryFileName(fileName: string): AccountTypeLabel {
+  if (fileName.endsWith("-margin.ndjson")) {
+    return "margin";
+  }
+
+  if (fileName.endsWith("-cash.ndjson")) {
+    return "cash";
+  }
+
+  return "unknown";
 }
 
 function getRunHistoryDirectory(): string {
@@ -179,9 +205,29 @@ function getRunHistoryDirectory(): string {
   return path.join(process.cwd(), "data", "runs");
 }
 
-function getRunHistoryPathForAccount(accountNumber: string): string {
+async function getRunHistoryPrimaryPathForAccount(accountNumber: string): Promise<string> {
   const safeAccountNumber = sanitizeAccountNumberForPath(accountNumber);
-  return path.join(getRunHistoryDirectory(), `${safeAccountNumber}.ndjson`);
+  const accountType = normalizeAccountTypeForFileName(
+    await getAccountMarginOrCash(accountNumber),
+  );
+
+  if (accountType === "unknown") {
+    return path.join(getRunHistoryDirectory(), `${safeAccountNumber}.ndjson`);
+  }
+
+  return path.join(getRunHistoryDirectory(), `${safeAccountNumber}-${accountType}.ndjson`);
+}
+
+async function getRunHistoryReadPathsForAccount(accountNumber: string): Promise<string[]> {
+  const safeAccountNumber = sanitizeAccountNumberForPath(accountNumber);
+  const legacyPath = path.join(getRunHistoryDirectory(), `${safeAccountNumber}.ndjson`);
+  const primaryPath = await getRunHistoryPrimaryPathForAccount(accountNumber);
+
+  if (primaryPath === legacyPath) {
+    return [legacyPath];
+  }
+
+  return [primaryPath, legacyPath];
 }
 
 async function readRunHistoryFile(historyPath: string): Promise<RunHistoryEntry[]> {
@@ -212,6 +258,19 @@ async function readRunHistoryFile(historyPath: string): Promise<RunHistoryEntry[
   }
 
   return parsed;
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function normalizeTicker(value: unknown): string {
@@ -291,7 +350,24 @@ export async function appendRunHistory(
     timestamp: new Date().toISOString(),
   };
 
-  const historyPath = getRunHistoryPathForAccount(input.accountNumber);
+  const historyPath = await getRunHistoryPrimaryPathForAccount(input.accountNumber);
+  const legacyPath = path.join(
+    getRunHistoryDirectory(),
+    `${sanitizeAccountNumberForPath(input.accountNumber)}.ndjson`,
+  );
+
+  if (historyPath !== legacyPath) {
+    const [legacyExists, primaryExists] = await Promise.all([
+      pathExists(legacyPath),
+      pathExists(historyPath),
+    ]);
+
+    if (legacyExists && !primaryExists) {
+      await fs.mkdir(path.dirname(historyPath), { recursive: true });
+      await fs.rename(legacyPath, historyPath);
+    }
+  }
+
   await fs.mkdir(path.dirname(historyPath), { recursive: true });
   await fs.appendFile(historyPath, `${JSON.stringify(entry)}\n`, "utf8");
 
@@ -307,9 +383,15 @@ export async function getRecentRunHistory(
     : 20;
 
   if (accountNumber?.trim()) {
-    const accountEntries = await readRunHistoryFile(
-      getRunHistoryPathForAccount(accountNumber),
+    const accountReadPaths = await getRunHistoryReadPathsForAccount(accountNumber);
+    const accountEntriesFromPaths = await Promise.all(
+      accountReadPaths.map((historyPath) => readRunHistoryFile(historyPath)),
     );
+    const accountEntries = accountEntriesFromPaths
+      .flat()
+      .sort((left, right) =>
+        String(right.timestamp).localeCompare(String(left.timestamp)),
+      );
     return accountEntries.slice(0, normalizedLimit);
   }
 
@@ -370,7 +452,10 @@ export async function getLastRunGroupsByTickers(
   const entriesByFile = await Promise.all(
     ndjsonFiles.map(async (fileName) => {
       const entries = await readRunHistoryFile(path.join(directoryPath, fileName));
-      return entries;
+      return {
+        accountType: getAccountTypeFromHistoryFileName(fileName),
+        entries,
+      };
     }),
   );
 
@@ -378,11 +463,8 @@ export async function getLastRunGroupsByTickers(
     requestedTickers.map((ticker) => [ticker, []]),
   );
 
-  for (const entries of entriesByFile) {
-    const accountNumber = String(entries[0]?.accountNumber ?? "").trim();
-    const accountType = accountNumber
-      ? await getAccountMarginOrCash(accountNumber)
-      : "unknown";
+  for (const fileEntries of entriesByFile) {
+    const { accountType, entries } = fileEntries;
 
     for (const ticker of requestedTickers) {
       const matchingEntry = entries.find((entry) =>

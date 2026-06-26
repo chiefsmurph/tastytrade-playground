@@ -27,7 +27,7 @@ import {
   startMarketOpenScheduler,
   stopMarketOpenScheduler,
 } from "./bot/market-open-scheduler";
-import { getLastBotRunState } from "./bot/last-run-state";
+import getLastRunCycle from "./bot/get-last-run-cycle";
 import { getLastRunGroupsByTickers, getRecentRunHistory } from "./bot/run-history";
 import {
   getCurrentEquitiesSession,
@@ -200,7 +200,10 @@ const commandHandlers: Record<string, CommandHandler> = {
     runBotCycleLogOnly(accountNumber),
   "bot:getRunCyclePreview": async ([accountNumber]) =>
     getRunCyclePreview(accountNumber),
-  "bot:getLastRunCycle": async ([accountNumber]) => getLastBotRunState(accountNumber),
+  "bot:getLastRunCycle": async ([accountNumber]) =>
+    getLastRunCycle(
+      typeof accountNumber === "string" ? accountNumber.trim() : undefined,
+    ),
   "bot:getRecentRunHistory": async ([limit, accountNumber]) => {
     const parsedLimit = limit ? Number(limit) : 20;
     const parsedAccountNumber =
