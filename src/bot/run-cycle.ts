@@ -560,6 +560,7 @@ function mapCashAccountSeedOrderForRunHistory(
 async function maybeSeedCashAccountFromMarginAccount(
   accountNumber: string,
   currentTime: Date,
+  excludedUnderlyingSymbols: ReadonlySet<string> = new Set(),
 ): Promise<CashAccountSeedResult[]> {
   if (isReadOnlyAccount(accountNumber)) {
     return [];
@@ -580,8 +581,25 @@ async function maybeSeedCashAccountFromMarginAccount(
   }
 
   const marginEvaluations = await getPositionEvaluations(marginAccountNumber);
+  const localExcludedUnderlyingSymbols = new Set(
+    Array.from(excludedUnderlyingSymbols, (symbol) => String(symbol).toUpperCase()),
+  );
+
+  for (const evaluation of marginEvaluations) {
+    if (evaluation.strategy.action === "CLOSE_POSITION") {
+      localExcludedUnderlyingSymbols.add(
+        String(evaluation.underlyingSymbol ?? "").toUpperCase(),
+      );
+    }
+  }
+
   const seedCandidates = getCashAccountSeedCandidatesFromMarginEvaluations(
     marginEvaluations,
+  ).filter(
+    (candidate) =>
+      !localExcludedUnderlyingSymbols.has(
+        String(candidate.underlyingSymbol ?? "").toUpperCase(),
+      ),
   );
 
   const seedResults: CashAccountSeedResult[] = [];
@@ -976,14 +994,23 @@ export async function runBotCycleLogOnly(
 export default async function runBotCycle(): Promise<RunHistoryEntry[]>;
 export default async function runBotCycle(accountNumber: string): Promise<RunHistoryEntry>;
 export default async function runBotCycle(
+  accountNumber: string,
+  recentlyClosedByAccount: Map<string, Set<string>>,
+): Promise<RunHistoryEntry>;
+export default async function runBotCycle(
   accountNumber?: string,
+  recentlyClosedByAccount?: Map<string, Set<string>>,
 ): Promise<RunHistoryEntry | RunHistoryEntry[]> {
   if (!accountNumber) {
     const accountNumbers = await getManagedAccountNumbers();
     const results: RunHistoryEntry[] = [];
+    const closedSymbolsByAccount = new Map<string, Set<string>>();
 
     for (const managedAccountNumber of accountNumbers) {
-      const result = await runBotCycle(managedAccountNumber);
+      const result = await runBotCycle(
+        managedAccountNumber,
+        closedSymbolsByAccount,
+      );
       results.push(result as RunHistoryEntry);
     }
 
@@ -1015,9 +1042,27 @@ export default async function runBotCycle(
     context.completedEvaluations,
     context.runExecutionTargets,
   );
+
+  const closedUnderlyingSymbolsThisRun = new Set(
+    executionResults.closeOrders
+      .filter((order) => order.placedOrder)
+      .map((order) => String(order.underlyingSymbol ?? "").toUpperCase())
+      .filter((symbol) => symbol.length > 0),
+  );
+  if (recentlyClosedByAccount) {
+    recentlyClosedByAccount.set(
+      context.preview.accountNumber,
+      closedUnderlyingSymbolsThisRun,
+    );
+  }
+
+  const marginAccountNumber = await getMarginAccountNumber();
+  const excludedSeedSymbols = recentlyClosedByAccount?.get(marginAccountNumber) ?? new Set<string>();
+
   const cashAccountSeedResults = await maybeSeedCashAccountFromMarginAccount(
     context.preview.accountNumber,
     new Date(),
+    excludedSeedSymbols,
   );
 
   const executionSummary = {
