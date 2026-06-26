@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { getAccountMarginOrCash } from "~/core/default-account";
 
 export interface RunPlanRow {
   estimatedCost: number;
@@ -127,6 +128,28 @@ export interface RunHistoryEntry {
   timestamp: string;
 }
 
+export interface PublicRunGroupReturn {
+  askReturnPct: number;
+  bidReturnPct: number;
+  currentReturnPct: number;
+  side: "call" | "put" | "none";
+  totalCostBasis: number;
+  totalUnrealizedReturnAsk: number;
+  totalUnrealizedReturnBid: number;
+  underlyingSymbol: string;
+}
+
+export interface TickerRunGroupReturn extends PublicRunGroupReturn {
+  account: "margin" | "cash" | "unknown";
+}
+
+export interface LastRunGroupsByTicker {
+  aggregated: PublicRunGroupReturn | null;
+  groups: TickerRunGroupReturn[];
+}
+
+export type LastRunGroupsByTickerMap = Record<string, LastRunGroupsByTicker>;
+
 interface AppendRunHistoryInput {
   accountNumber: string;
   closeOrders: RunHistoryEntry["closeOrders"];
@@ -191,6 +214,74 @@ async function readRunHistoryFile(historyPath: string): Promise<RunHistoryEntry[
   return parsed;
 }
 
+function normalizeTicker(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function toPublicGroup(group: RunGroupReturn): PublicRunGroupReturn {
+  return {
+    askReturnPct: group.askReturnPct,
+    bidReturnPct: group.bidReturnPct,
+    currentReturnPct: group.currentReturnPct,
+    side: group.side,
+    totalCostBasis: group.totalCostBasis,
+    totalUnrealizedReturnAsk: group.totalUnrealizedReturnAsk,
+    totalUnrealizedReturnBid: group.totalUnrealizedReturnBid,
+    underlyingSymbol: group.underlyingSymbol,
+  };
+}
+
+function aggregatePublicGroups(
+  groups: PublicRunGroupReturn[],
+  ticker: string,
+): PublicRunGroupReturn | null {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  const totalCostBasis = groups.reduce(
+    (sum, group) => sum + (Number(group.totalCostBasis) || 0),
+    0,
+  );
+  const totalUnrealizedReturnAsk = groups.reduce(
+    (sum, group) => sum + (Number(group.totalUnrealizedReturnAsk) || 0),
+    0,
+  );
+  const totalUnrealizedReturnBid = groups.reduce(
+    (sum, group) => sum + (Number(group.totalUnrealizedReturnBid) || 0),
+    0,
+  );
+
+  const hasMeaningfulCostBasis = totalCostBasis > 0;
+  const askReturnPct = hasMeaningfulCostBasis
+    ? totalUnrealizedReturnAsk / totalCostBasis
+    : 0;
+  const bidReturnPct = hasMeaningfulCostBasis
+    ? totalUnrealizedReturnBid / totalCostBasis
+    : 0;
+
+  const uniqueSides = new Set(groups.map((group) => group.side));
+  const side = uniqueSides.size === 1 ? groups[0]?.side ?? "none" : "none";
+
+  return {
+    askReturnPct,
+    bidReturnPct,
+    currentReturnPct: bidReturnPct,
+    side,
+    totalCostBasis,
+    totalUnrealizedReturnAsk,
+    totalUnrealizedReturnBid,
+    underlyingSymbol: ticker,
+  };
+}
+
+function parseTickersInput(rawTickers: string): string[] {
+  return rawTickers
+    .split(",")
+    .map((ticker) => normalizeTicker(ticker))
+    .filter((ticker) => ticker.length > 0);
+}
+
 export async function appendRunHistory(
   input: AppendRunHistoryInput,
 ): Promise<RunHistoryEntry> {
@@ -248,4 +339,82 @@ export async function getRecentRunHistory(
     );
 
   return merged.slice(0, normalizedLimit);
+}
+
+export async function getLastRunGroupsByTickers(
+  rawTickers: string,
+): Promise<LastRunGroupsByTickerMap> {
+  const requestedTickers = Array.from(new Set(parseTickersInput(rawTickers)));
+
+  if (requestedTickers.length === 0) {
+    return {};
+  }
+
+  const result: LastRunGroupsByTickerMap = Object.fromEntries(
+    requestedTickers.map((ticker) => [ticker, { groups: [], aggregated: null }]),
+  );
+
+  const directoryPath = getRunHistoryDirectory();
+  let fileNames: string[] = [];
+  try {
+    fileNames = await fs.readdir(directoryPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return result;
+    }
+    throw error;
+  }
+
+  const ndjsonFiles = fileNames.filter((fileName) => fileName.endsWith(".ndjson"));
+  const entriesByFile = await Promise.all(
+    ndjsonFiles.map(async (fileName) => {
+      const entries = await readRunHistoryFile(path.join(directoryPath, fileName));
+      return entries;
+    }),
+  );
+
+  const collected: Record<string, TickerRunGroupReturn[]> = Object.fromEntries(
+    requestedTickers.map((ticker) => [ticker, []]),
+  );
+
+  for (const entries of entriesByFile) {
+    const accountNumber = String(entries[0]?.accountNumber ?? "").trim();
+    const accountType = accountNumber
+      ? await getAccountMarginOrCash(accountNumber)
+      : "unknown";
+
+    for (const ticker of requestedTickers) {
+      const matchingEntry = entries.find((entry) =>
+        entry.groups.some(
+          (group) => normalizeTicker(group.underlyingSymbol) === ticker,
+        ),
+      );
+
+      if (!matchingEntry) {
+        continue;
+      }
+
+      const groupsForTicker = matchingEntry.groups
+        .filter((group) => normalizeTicker(group.underlyingSymbol) === ticker)
+        .map((group) => ({
+          account: accountType,
+          ...toPublicGroup(group),
+        }));
+
+      collected[ticker].push(...groupsForTicker);
+    }
+  }
+
+  for (const ticker of requestedTickers) {
+    const groups = collected[ticker]
+      .slice()
+      .sort((left, right) => left.account.localeCompare(right.account));
+    result[ticker] = {
+      groups,
+      aggregated: aggregatePublicGroups(groups, ticker),
+    };
+  }
+
+  return result;
 }

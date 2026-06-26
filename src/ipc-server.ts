@@ -28,7 +28,7 @@ import {
   stopMarketOpenScheduler,
 } from "./bot/market-open-scheduler";
 import { getLastBotRunState } from "./bot/last-run-state";
-import { getRecentRunHistory } from "./bot/run-history";
+import { getLastRunGroupsByTickers, getRecentRunHistory } from "./bot/run-history";
 import {
   getCurrentEquitiesSession,
   isEquityOptionsMarketOpen,
@@ -206,6 +206,18 @@ const commandHandlers: Record<string, CommandHandler> = {
     const parsedAccountNumber =
       typeof accountNumber === "string" ? accountNumber.trim() : undefined;
     return getRecentRunHistory(parsedLimit, parsedAccountNumber);
+  },
+  "bot:getLastRunGroupsByTickers": async (args) => {
+    const tickerInput = args
+      .map((arg) => String(arg ?? "").trim())
+      .filter((arg) => arg.length > 0)
+      .join(",");
+
+    if (!tickerInput) {
+      throw new Error("tickers are required; pass comma-separated symbols, e.g. RUM,TSLA");
+    }
+
+    return getLastRunGroupsByTickers(tickerInput);
   },
   "bot:getMarketOpenSchedulerStatus": async () =>
     getMarketOpenSchedulerStatus(),
