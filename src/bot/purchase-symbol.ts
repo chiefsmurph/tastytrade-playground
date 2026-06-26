@@ -1,5 +1,5 @@
 import tastytradeApi from "~/core/tastytrade-client";
-import { getDefaultAccountNumber } from "~/core/default-account";
+import { getAccountMarginOrCash, getDefaultAccountNumber } from "~/core/default-account";
 import {
   evaluateOptionHealthForTargetDTE,
   getOptionHealthForSymbol,
@@ -50,7 +50,8 @@ export async function purchaseSymbol(
 ): Promise<PurchaseSymbolResult> {
   const resolvedAccountNumber = accountNumber ?? (await getDefaultAccountNumber());
   const normalizedSymbol = symbol.toUpperCase();
-  const executionTargets = getTimeOfDayExecutionTargets(new Date());
+  const accountType = await getAccountMarginOrCash(resolvedAccountNumber);
+  const executionTargets = getTimeOfDayExecutionTargets(new Date(), accountType);
 
   if (!(requestedBudget > 0)) {
     throw new Error("requestedBudget must be greater than 0");

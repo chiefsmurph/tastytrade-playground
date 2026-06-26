@@ -671,7 +671,10 @@ async function buildRunCycleContext(
   const currentTime = new Date();
 
   startSecretSocketConnection();
-  const timeOfDayExecutionTargets = getTimeOfDayExecutionTargets(currentTime);
+  const timeOfDayExecutionTargets = getTimeOfDayExecutionTargets(
+    currentTime,
+    accountMarginOrCash,
+  );
   const cachedSecretPositions = getCachedSecretSourcePositions();
   console.log(
     `[secret] cached source positions: ${cachedSecretPositions.length}`,

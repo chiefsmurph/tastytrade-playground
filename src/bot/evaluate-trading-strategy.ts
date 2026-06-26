@@ -14,6 +14,25 @@ export interface ExecutionTargets {
   askWeight: number;
 }
 
+function getNoBuyCutoffMinute(accountType: StrategyAccountType): number {
+  return accountType === "cash" ? 13 * 60 : 12 * 60 + 30;
+}
+
+function getScheduleTailPoints(
+  accountType: StrategyAccountType,
+  value: number,
+): TimeSchedulePoint[] {
+  const TWELVE_THIRTY_PM = 12 * 60 + 30;
+  const cutoffMinute = getNoBuyCutoffMinute(accountType);
+
+  return cutoffMinute > TWELVE_THIRTY_PM
+    ? [
+        { minute: TWELVE_THIRTY_PM, value },
+        { minute: cutoffMinute, value },
+      ]
+    : [{ minute: TWELVE_THIRTY_PM, value }];
+}
+
 function getMaxAskWeightForPositionSize(positionSizePct: number): number {
   if (positionSizePct <= 0.15) {
     return 0.50;
@@ -106,7 +125,7 @@ export function evaluateTradingStrategy(
   // 1. SYSTEM CLOCK CONVERSIONS (Pacific Standard Time - Minutes from midnight)
   const timeInMinutes = getTimeInMinutes(currentTime);
 
-  const TWELVE_THIRTY_PM   = 12 * 60 + 30;
+  const accumulationCutoffMinute = getNoBuyCutoffMinute(accountType);
   const TWELVE_FIFTY_FIVE_PM = 12 * 60 + 55;
 
   const currentReturn = (currentBidPrice - weightedAverageFill) / weightedAverageFill;
@@ -140,15 +159,15 @@ export function evaluateTradingStrategy(
   }
 
   // Absolute Risk Floor Check
-  if (timeInMinutes < TWELVE_THIRTY_PM && currentReturn <= -0.30) {
+  if (timeInMinutes < accumulationCutoffMinute && currentReturn <= -0.30) {
     return {
       action: "CLOSE_POSITION",
       reason: `Hit absolute loss limit (${(currentReturn * 100).toFixed(2)}% <= -30%) - stop loss triggered`
     };
   }
 
-  // 4. BLOCK ALL NEW ACCUMULATION PAST THE 12:30 PM LINE
-  if (timeInMinutes >= TWELVE_THIRTY_PM) {
+  // 4. BLOCK ALL NEW ACCUMULATION PAST THE ACCOUNT-SPECIFIC CUTOFF
+  if (timeInMinutes >= accumulationCutoffMinute) {
     if (currentReturn <= -0.10) {
       return {
         action: "CLOSE_POSITION",
@@ -163,19 +182,25 @@ export function evaluateTradingStrategy(
   };
 }
 
-export function getTimeOfDayExecutionTargets(currentTime: Date): ExecutionTargets {
+export function getTimeOfDayExecutionTargets(
+  currentTime: Date,
+  accountType: StrategyAccountType = "unknown",
+): ExecutionTargets {
   const timeInMinutes = getTimeInMinutes(currentTime);
-  return getTimeOfDayExecutionTargetsForMinute(timeInMinutes);
+  return getTimeOfDayExecutionTargetsForMinute(timeInMinutes, accountType);
 }
 
-function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): ExecutionTargets {
+function getTimeOfDayExecutionTargetsForMinute(
+  timeInMinutes: number,
+  accountType: StrategyAccountType = "unknown",
+): ExecutionTargets {
 
   const SIX_THIRTY_AM      = 6 * 60 + 30;
   const NINE_AM            = 9 * 60 + 0;
   const TEN_AM             = 10 * 60 + 0;
   const ELEVEN_AM          = 11 * 60 + 0;
   const ELEVEN_THIRTY_AM   = 11 * 60 + 30;
-  const TWELVE_THIRTY_PM   = 12 * 60 + 30;
+  const noBuyCutoffMinute = getNoBuyCutoffMinute(accountType);
 
   const targetDTE = Math.round(
     blendBySchedule(timeInMinutes, [
@@ -184,7 +209,7 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
       { minute: TEN_AM, value: 20 },
       { minute: ELEVEN_AM, value: 14 },
       { minute: ELEVEN_THIRTY_AM, value: 7 },
-      { minute: TWELVE_THIRTY_PM, value: 7 },
+      ...getScheduleTailPoints(accountType, 7),
     ]),
   );
   const targetAccountExposure = blendBySchedule(timeInMinutes, [
@@ -193,7 +218,7 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
     { minute: TEN_AM, value: 0.65 },
     { minute: ELEVEN_AM, value: 0.85 },
     { minute: ELEVEN_THIRTY_AM, value: 1.00 },
-    { minute: TWELVE_THIRTY_PM, value: 0.80 },
+    ...getScheduleTailPoints(accountType, 0.80),
   ]);
   const bidWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.70 },
@@ -201,7 +226,7 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.20 },
     { minute: ELEVEN_THIRTY_AM, value: 0.00 },
-    { minute: TWELVE_THIRTY_PM, value: 0.00 },
+    ...getScheduleTailPoints(accountType, 0.00),
   ]);
   const midWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.20 },
@@ -209,7 +234,7 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.30 },
     { minute: ELEVEN_THIRTY_AM, value: 0.25 },
-    { minute: TWELVE_THIRTY_PM, value: 0.15 },
+    ...getScheduleTailPoints(accountType, 0.15),
   ]);
   const askWeight = blendBySchedule(timeInMinutes, [
     { minute: SIX_THIRTY_AM, value: 0.10 },
@@ -217,10 +242,10 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
     { minute: TEN_AM, value: 0.33 },
     { minute: ELEVEN_AM, value: 0.50 },
     { minute: ELEVEN_THIRTY_AM, value: 0.75 },
-    { minute: TWELVE_THIRTY_PM, value: 0.85 },
+    ...getScheduleTailPoints(accountType, 0.85),
   ]);
 
-  if (timeInMinutes >= TWELVE_THIRTY_PM) {
+  if (timeInMinutes >= noBuyCutoffMinute) {
     return {
       askWeight: 0,
       bidWeight: 0,
@@ -241,9 +266,10 @@ function getTimeOfDayExecutionTargetsForMinute(timeInMinutes: number): Execution
 
 export function getTimeOfDayExecutionTargetsForPstTime(
   timeOfDay?: string,
+  accountType: StrategyAccountType = "unknown",
 ): ExecutionTargets {
   if (!timeOfDay) {
-    return getTimeOfDayExecutionTargets(new Date());
+    return getTimeOfDayExecutionTargets(new Date(), accountType);
   }
   const match = timeOfDay.trim().match(/^(?:[01]?\d|2[0-3]):[0-5]\d$/);
   if (!match) {
@@ -255,7 +281,7 @@ export function getTimeOfDayExecutionTargetsForPstTime(
   const minutes = Number(minutesText);
   const timeInMinutes = hours * 60 + minutes;
 
-  return getTimeOfDayExecutionTargetsForMinute(timeInMinutes);
+  return getTimeOfDayExecutionTargetsForMinute(timeInMinutes, accountType);
 }
 
 export function getPositionGroupExecutionTargets(

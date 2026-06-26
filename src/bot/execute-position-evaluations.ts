@@ -147,7 +147,10 @@ export async function executePositionEvaluations(
 
   const sharedExecutionTargets =
     runExecutionTargets ??
-    getTimeOfDayExecutionTargets(evaluations[0]?.metrics.currentTime ?? new Date());
+    getTimeOfDayExecutionTargets(
+      evaluations[0]?.metrics.currentTime ?? new Date(),
+      accountMarginOrCash,
+    );
 
   const evaluationsWithTargets = evaluations.map((evaluation) => ({
     ...evaluation,

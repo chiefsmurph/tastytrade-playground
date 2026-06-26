@@ -1,5 +1,6 @@
 import { getCurrentAllocationBudget } from "./actions/manage-allocation";
 import { getTimeOfDayExecutionTargets } from "./evaluate-trading-strategy";
+import { getAccountMarginOrCash } from "~/core/default-account";
 
 export interface EffectiveBuyingPowerSummary {
   buyingPowerRemaining: number;
@@ -17,7 +18,8 @@ export async function getEffectiveBuyingPowerSummary(
   currentTime = new Date(),
 ): Promise<EffectiveBuyingPowerSummary> {
   const budget = await getCurrentAllocationBudget(accountNumber);
-  const executionTargets = getTimeOfDayExecutionTargets(currentTime);
+  const accountType = await getAccountMarginOrCash(accountNumber);
+  const executionTargets = getTimeOfDayExecutionTargets(currentTime, accountType);
 
   const targetExposureValue =
     budget.totalCapital * executionTargets.targetAccountExposure;

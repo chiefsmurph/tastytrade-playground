@@ -70,6 +70,26 @@ test("getTimeOfDayExecutionTargets boundary at 12:30 is fully risk-off", () => {
   assert.equal(targets.askWeight, 0);
 });
 
+test("getTimeOfDayExecutionTargets keeps cash accounts active at 12:30", () => {
+  const targets = getTimeOfDayExecutionTargetsForPstTime("12:30", "cash");
+
+  assert.equal(targets.targetDTE, 7);
+  assert.equal(targets.targetAccountExposure, 0.8);
+  assert.equal(targets.bidWeight, 0);
+  assert.equal(targets.midWeight, 0.15);
+  assert.equal(targets.askWeight, 0.85);
+});
+
+test("getTimeOfDayExecutionTargets makes cash accounts risk-off at 13:00", () => {
+  const targets = getTimeOfDayExecutionTargetsForPstTime("13:00", "cash");
+
+  assert.equal(targets.targetDTE, 7);
+  assert.equal(targets.targetAccountExposure, 0);
+  assert.equal(targets.bidWeight, 0);
+  assert.equal(targets.midWeight, 0);
+  assert.equal(targets.askWeight, 0);
+});
+
 test("applyPositionSizeWeightCaps caps ask to 0.50 when position size is 15%", () => {
   const adjusted = applyPositionSizeWeightCaps(
     {
@@ -127,6 +147,13 @@ test("evaluateTradingStrategy liquidates margin accounts in last 5 minutes", () 
 
 test("evaluateTradingStrategy does not liquidate cash accounts in last 5 minutes", () => {
   const strategy = evaluateTradingStrategy(buildMetricsAtTime(12, 55), "cash");
+
+  assert.equal(strategy.action, "MANAGE_ALLOCATION");
+  assert.match(strategy.reason, /No circuit breakers triggered/);
+});
+
+test("evaluateTradingStrategy keeps cash accounts in accumulation mode before 1pm", () => {
+  const strategy = evaluateTradingStrategy(buildMetricsAtTime(12, 45), "cash");
 
   assert.equal(strategy.action, "MANAGE_ALLOCATION");
   assert.match(strategy.reason, /No circuit breakers triggered/);
