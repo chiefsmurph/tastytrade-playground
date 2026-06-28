@@ -5,6 +5,8 @@ export interface SecretSourcePosition {
   buyEligible?: boolean | string | number;
   returnPerc?: number;
   superRecScore?: number;
+  distanceToAsk?: number;
+  percentOfBalance?: number;
   [key: string]: unknown;
 }
 

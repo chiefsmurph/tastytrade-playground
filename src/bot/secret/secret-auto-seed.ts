@@ -6,16 +6,14 @@ import { SecretSourcePosition, SecretTickerRecPick } from "./types";
 const lastAutoSeedAtBySymbol = new Map<string, number>();
 
 export function shouldAutoSeedOnSecretPositionsUpdate(): boolean {
-  const raw = process.env.SECRET_AUTO_SEED_ON_POSITIONS_UPDATE
-    ?.trim()
-    .toLowerCase();
+  const raw =
+    process.env.SECRET_AUTO_SEED_ON_POSITIONS_UPDATE?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
 export function shouldAutoSeedOnTickerRecsUpdate(): boolean {
-  const raw = process.env.SECRET_AUTO_SEED_ON_TICKER_RECS_UPDATE
-    ?.trim()
-    .toLowerCase();
+  const raw =
+    process.env.SECRET_AUTO_SEED_ON_TICKER_RECS_UPDATE?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
@@ -43,7 +41,9 @@ function getAutoSeedCooldownMs(): number {
 function normalizeSideForSeed(
   position: SecretSourcePosition,
 ): "call" | "put" | null {
-  const raw = String(position.side ?? "").trim().toLowerCase();
+  const raw = String(position.side ?? "")
+    .trim()
+    .toLowerCase();
   if (raw === "call" || raw === "c") {
     return "call";
   }
@@ -65,7 +65,9 @@ function hasBuyEligible(position: SecretSourcePosition): boolean {
     return raw === 1;
   }
 
-  const normalized = String(raw ?? "").trim().toLowerCase();
+  const normalized = String(raw ?? "")
+    .trim()
+    .toLowerCase();
   return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
@@ -78,7 +80,9 @@ function toBooleanFlag(raw: unknown): boolean {
     return raw === 1;
   }
 
-  const normalized = String(raw ?? "").trim().toLowerCase();
+  const normalized = String(raw ?? "")
+    .trim()
+    .toLowerCase();
   return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
@@ -131,12 +135,20 @@ export async function maybeAutoSeedFromSecretPositions(
   }
 
   for (const position of sourcePositions) {
-    const symbol = String(position.ticker ?? "").trim().toUpperCase();
+    const symbol = String(position.ticker ?? "")
+      .trim()
+      .toUpperCase();
     if (!symbol) {
       continue;
     }
 
-    if (!hasBuyEligible(position)) {
+    const isBuyEligible = hasBuyEligible(position);
+    const distanceToAsk = position.distanceToAsk ?? 0;
+    const percentOfBalance = position.percentOfBalance ?? 0;
+
+    const shouldAutoSeed =
+      isBuyEligible && distanceToAsk < -1.5 && percentOfBalance >= 20;
+    if (!shouldAutoSeed) {
       continue;
     }
 
@@ -161,7 +173,9 @@ export async function maybeAutoSeedFromTickerRecs(
   }
 
   for (const pick of picks) {
-    const symbol = String(pick.ticker ?? "").trim().toUpperCase();
+    const symbol = String(pick.ticker ?? "")
+      .trim()
+      .toUpperCase();
     if (!symbol) {
       continue;
     }
